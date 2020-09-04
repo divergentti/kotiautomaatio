@@ -3,7 +3,7 @@
 Tässä versiossa olen lisännyt neljännen tason mqtt-sanomaan, joka välitetään InfluxDB-tietokantaan ja sitä kautta
 esimerkiksi Grafanaan, jolla tietoa voidaan helposti visualisisoida. 
 
-MQTT-sanoma voi olla esimerkiksi muotoa koti/etela/liiketunnistus/pir1 tällä versiolla.
+MQTT-sanoma voi olla esimerkiksi muotoa koti/ulko/etela/pir1 tällä versiolla.
 
 Tässä versiossa muuttujia ei tuoda paramterit.py-tiedostosta.
 
