@@ -1,5 +1,5 @@
 # kotiautomaatio
-Kodin IoT scriptejä Raspberrylle ja ESP32:lle.
+Kodin IoT scriptejä Raspberrylle ja ESP32:lle. Voit ottaa näistä mallia.
 
 IoT on toteutettu mqtt-protokollaa hyödyntäen. 
 
