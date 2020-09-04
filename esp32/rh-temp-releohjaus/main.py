@@ -4,7 +4,7 @@
 # Yksi ledin vilaus = toiminta alkaa
 # Kaksi ledin vilautusta = toiminta saatettu loppuun
 # 10 ledin vilautusta = virhe!
-# Osa kanalan automaatioprojektia, https://hiltsu.dy.fi
+# 
 # Jari Hiltunen 13.6.2020
 import time
 import utime
