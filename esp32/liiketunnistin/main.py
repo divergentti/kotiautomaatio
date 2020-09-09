@@ -1,6 +1,6 @@
 """ ESP32-Wroom-NodeMCU ja vastaaville (micropython)
 
-    31.8.2020: Jari Hiltunen
+    9.9.2020: Jari Hiltunen
 
     PIR HC-SR501-sensorille:
     Luetaan liiketunnistimelta tulevaa statustietoa, joko pinni päällä tai pois.
@@ -41,6 +41,7 @@ gc.enable()  # aktivoidaan automaattinen roskankeruu
 
 # asetetaan hitaampi kellotus 20MHz, 40MHz, 80Mhz, 160MHz or 240MHz
 machine.freq(80000000)
+
 print ("Prosessorin nopeus asetettu: %s" %machine.freq())
 
 # Raspberry WiFi on huono ja lisaksi raspin pitaa pingata ESP32 jotta yhteys toimii!
@@ -92,6 +93,7 @@ def laheta_pir(status):
     if sta_if.isconnected():
         try:
             client.publish(AIHE_LIIKETUNNISTIN, str(status))  # 1 = liiketta, 0 = liike loppunut
+            gc.collect()  # puhdistetaan roskat
         except OSError as e:
             print("% s:  Ei voida yhdistaa! " % aika)
             restart_and_reconnect()
@@ -114,9 +116,9 @@ def vilkuta_ledi(kertaa):
 
 def restart_and_reconnect():
     aika = ratkaise_aika()
-    print('%s: Ongelmia. Boottaillaan 5s kuluttua.' % aika)
+    print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
     vilkuta_ledi(10)
-    time.sleep(5)
+    time.sleep(1)
     machine.reset()
     # resetoidaan
 
@@ -132,22 +134,25 @@ def seuraa_liiketta():
     ilmoitettu_off = False
 
     while True:
-        pir_tila = pir.value()
-        if (pir_tila == 0) and (ilmoitettu_off == False):
-            ''' Nollataan ilmoitus'''
-            off_aika = utime.time()
-            print("Ilmoitettu liikkeen lopusta. Liike kesti %s" %(off_aika - on_aika))
-            laheta_pir(0)
-            ilmoitettu_off = True
-            ilmoitettu_on = False
-        elif (pir_tila == 1) and (ilmoitettu_on == False):
-            ''' Liikettä havaittu !'''
-            on_aika = utime.time()
-            print("Ilmoitetaan liikkeesta!")
-            laheta_pir(1)
-            ilmoitettu_on = True
-            ilmoitettu_off = False
-
+        try:
+            pir_tila = pir.value()
+            if (pir_tila == 0) and (ilmoitettu_off == False):
+                ''' Nollataan ilmoitus'''
+                off_aika = utime.time()
+                print("Ilmoitettu liikkeen lopusta. Liike kesti %s" %(off_aika - on_aika))
+                laheta_pir(0)
+                ilmoitettu_off = True
+                ilmoitettu_on = False
+            elif (pir_tila == 1) and (ilmoitettu_on == False):
+                ''' Liikettä havaittu !'''
+                on_aika = utime.time()
+                print("Ilmoitetaan liikkeesta!")
+                laheta_pir(1)
+                ilmoitettu_on = True
+                ilmoitettu_off = False
+        except:
+            print("Jotain meni pieleen!")
+            restart_and_reconnect()
         # lasketaan prosessorin kuormaa
         time.sleep(0.01)
 
