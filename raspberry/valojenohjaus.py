@@ -83,6 +83,7 @@ def valojen_ohjaus(status):
         mqttasiakas.publish(VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, payload=status, retain=True)
         ''' Lähetetään mqtt-sanoma'''
         mqttasiakas.loop(timeout=1.0, max_packets=1)
+        mqttasiakas.loop_start()
 
     except OSError:
         print("Virhe %d" % OSError)
