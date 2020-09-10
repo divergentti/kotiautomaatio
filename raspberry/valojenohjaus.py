@@ -82,8 +82,12 @@ def valojen_ohjaus(status):
         ''' mqtt-sanoma voisi olla esim. koti/ulko/etela/valaistus ja rele 1 tarkoittaa päällä '''
         mqttasiakas.publish(VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, payload=status, retain=True)
         ''' Lähetetään mqtt-sanoma'''
-        mqttasiakas.loop(timeout=1.0, max_packets=1)
+        # mqttasiakas.loop(timeout=1.0, max_packets=1)
         mqttasiakas.loop_start()
+    except struct.error:
+        pass
+    except AttributeError:
+        pass
 
     except OSError:
         print("Virhe %d" % OSError)
@@ -168,7 +172,13 @@ def ohjausluuppi():
     """ Suoritetaan looppia kunnes toiminta katkaistaan"""
     while True:
         ''' Luetaan mqtt-sanomia'''
-        mqttliiketieto.loop(timeout=1.0, max_packets=1)
+        try:
+            mqttliiketieto.loop()
+        except AttributeError:
+            pass
+        except OSError:
+            print("Alustusvirhe %s" % OSError)
+            logging.error('Valojenohjaus mqttliiketietovirhe %s' % OSError)
 
         ''' Palauttaa UTC-ajan ilman astitimezonea'''
         auringon_nousu = aurinko.get_sunrise_time().astimezone(aikavyohyke)
@@ -258,7 +268,6 @@ def ohjausluuppi():
             print("Valot sytytetty liiketunnistunnistuksen vuoksi klo %s" % valot_ohjattu_paalle)
         if (aurinko_laskenut == True) and (valot_paalla == True) and (liiketta_havaittu == False) and \
             (loppumisaika_delta > LIIKE_PAALLAPITO_AIKA) and (pitoajalla == False):
-        
              valojen_ohjaus(0)
              print("Valot sammutettu liikkeen loppumisen vuoksi. Liikedelta: %s \n" % loppumisaika_delta)
              valot_paalla = False
