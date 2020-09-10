@@ -211,7 +211,7 @@ def ohjausluuppi():
             valojen_ohjaus(1)
             valot_paalla = True
             valot_ohjattu_paalle = datetime.datetime.now()
-            print("Aurinko laskenut. Valot sytytetty klo: %s", valot_ohjattu_paalle)
+            print("Aurinko laskenut. Valot sytytetty klo: %s" % valot_ohjattu_paalle)
 
 
         ''' Aurinko laskenut ja valot päällä, mutta sammutusaika saavutettu '''
@@ -229,7 +229,7 @@ def ohjausluuppi():
             valojen_ohjaus(1)
             valot_paalla = True
             valot_ohjattu_paalle = datetime.datetime.now()
-            print("Valot sytytetty ennakkoajan mukaisesti klo %s", valot_ohjattu_paalle)
+            print("Valot sytytetty ennakkoajan mukaisesti klo %s" % valot_ohjattu_paalle)
 
         ''' Jos aurinko noussut, sammutetaan valot '''
         if (aurinko_noussut == True) and (valot_paalla == True):
@@ -246,11 +246,11 @@ def ohjausluuppi():
             valojen_ohjaus(1)
             valot_paalla = True
             valot_ohjattu_paalle = datetime.datetime.now()
-            print("Valot sytytetty liiketunnistunnistuksen vuoksi klo %s", valot_ohjattu_paalle)
+            print("Valot sytytetty liiketunnistunnistuksen vuoksi klo %s" % valot_ohjattu_paalle)
         elif (aurinko_laskenut == True) and (valot_paalla == True) and (liiketta_havaittu == False) and \
              (loppumisaika_delta > LIIKE_PAALLAPITO_AIKA):
              valojen_ohjaus(0)
-             print("Valot sammutettu liikkeen loppumisen vuoksi. Liikedelta: %s \n", loppumisaika_delta)
+             print("Valot sammutettu liikkeen loppumisen vuoksi. Liikedelta: %s \n" % loppumisaika_delta)
              valot_paalla = False
              valot_ohjattu_pois = datetime.datetime.now()
 
