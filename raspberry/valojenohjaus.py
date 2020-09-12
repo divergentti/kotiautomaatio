@@ -4,7 +4,7 @@ Valojen varsinainen ohjaus tapahtuu mqtt-viesteillä, joita voivat lähettää e
 kännykän sovellus tai jokin muu IoT-laite.
 Ulkotiloissa valoja on turha sytyttää, jos valoisuus riittää muutenkin. Tieto valoisuudesta saadaan mqtt-kanaviin
 valoantureilla, mutta lisätieto auringon nousu- ja laskuajoista voi olla myös tarpeen.
-Tämä scripti laskee auringon nousu- ja laskuajat ja lähettää mqtt-komennon valojen 
+Tämä scripti laskee auringon nousu- ja laskuajat ja lähettää mqtt-komennon valojen
 päälle kytkemiseen tai sammuttamiseen.
 
 Lisäksi tämä scripti kuuntelee tuleeko liikesensoreilta tietoa liikkeestä ja laittaa valot päälle mikäli
@@ -79,9 +79,11 @@ def valojen_ohjaus(status):
     try:
         ''' mqtt-sanoma voisi olla esim. koti/ulko/etela/valaistus ja rele 1 tarkoittaa päällä '''
         mqttasiakas.publish(VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, payload=status, retain=True)
-        ''' Lähetetään mqtt-sanoma'''
-        # mqttasiakas.loop(timeout=1.0, max_packets=1)
-        mqttasiakas.loop_start()
+        ''' mqttasiakas.is_connected ei vaikuta toimivan luotettavasti, eli yhteys ei ole päällä ennen looppia '''
+        mqttasiakas.loop()
+        if mqttasiakas.is_connected():
+            return True
+        # mqttasiakas.loop_start()
     except AttributeError:
         pass
 
@@ -94,7 +96,6 @@ def valojen_ohjaus(status):
         mqttasiakas.disconnect()
         return False
 
-    return True
 
 
 def mqttviestiliike(mqttliiketieto, userdata, message):
@@ -172,6 +173,14 @@ def ohjausluuppi():
         ''' Luetaan mqtt-sanomia'''
         try:
             mqttliiketieto.loop()
+            if mqttliiketieto.is_connected() is False:
+                print("Yhteys mqttliiketieto ei onnistu %s" % datetime.datetime.now())
+                logging.error('Yhteys mqttliiketieto ei onnistu %s' % datetime.datetime.now())
+                ''' Alusettaan yhteydet uudelleen '''
+                mqttliiketieto.disconnect()
+                mqttasiakas.disconnect()
+                alustus()
+
         except AttributeError:
             pass
         except OSError:
