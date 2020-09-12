@@ -77,13 +77,14 @@ def mqttliike_pura_yhteys(mqttliiketieto, userdata, rc=0):
 def valojen_ohjaus(status):
     """ Status on joko 1 tai 0 riippuen siitä mitä releelle lähetetään """
     try:
+        # mqttasiakas.loop()
         ''' mqtt-sanoma voisi olla esim. koti/ulko/etela/valaistus ja rele 1 tarkoittaa päällä '''
         mqttasiakas.publish(VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, payload=status, retain=True)
         ''' mqttasiakas.is_connected ei vaikuta toimivan luotettavasti, eli yhteys ei ole päällä ennen looppia '''
         mqttasiakas.loop()
         if mqttasiakas.is_connected():
             return True
-        # mqttasiakas.loop_start()
+            
     except AttributeError:
         pass
 
@@ -127,11 +128,13 @@ def alustus():
         mqttliiketieto.on_connect = mqttyhdistaliike  # mita tehdaan kun yhdistetaan brokeriin
         mqttliiketieto.on_disconnect = mqttliike_pura_yhteys  # mita tehdaan kun yhteys lopetetaan
         mqttliiketieto.on_message = mqttviestiliike  # maarita mita tehdaan kun viesti saapuu
+        mqttliiketieto.loop_start()
 
         mqttasiakas.username_pw_set(MQTTKAYTTAJA, MQTTSALARI)  # mqtt useri ja salari
         mqttasiakas.connect(broker, port, keepalive=60, bind_address="")  # yhdista mqtt-brokeriin
         mqttasiakas.on_connect = mqttyhdista  # mita tehdaan kun yhdistetaan brokeriin
         mqttasiakas.on_disconnect = mqttasiakas_pura_yhteys
+        mqttasiakas.loop_start()
 
     except OSError:
         print("Alustusvirhe %s" % OSError)
@@ -286,3 +289,4 @@ def ohjausluuppi():
 
 if __name__ == "__main__":
     ohjausluuppi()
+
