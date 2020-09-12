@@ -77,11 +77,11 @@ def mqttliike_pura_yhteys(mqttliiketieto, userdata, rc=0):
 def valojen_ohjaus(status):
     """ Status on joko 1 tai 0 riippuen siitä mitä releelle lähetetään """
     try:
-        # mqttasiakas.loop()
+        
         ''' mqtt-sanoma voisi olla esim. koti/ulko/etela/valaistus ja rele 1 tarkoittaa päällä '''
         mqttasiakas.publish(VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, payload=status, retain=True)
         ''' mqttasiakas.is_connected ei vaikuta toimivan luotettavasti, eli yhteys ei ole päällä ennen looppia '''
-        mqttasiakas.loop()
+        
         if mqttasiakas.is_connected():
             return True
             
@@ -175,7 +175,7 @@ def ohjausluuppi():
     while True:
         ''' Luetaan mqtt-sanomia'''
         try:
-            mqttliiketieto.loop()
+            
             if mqttliiketieto.is_connected() is False:
                 print("Yhteys mqttliiketieto ei onnistu %s" % datetime.datetime.now())
                 logging.error('Yhteys mqttliiketieto ei onnistu %s' % datetime.datetime.now())
