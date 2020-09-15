@@ -8,21 +8,24 @@ valoantureilla, mutta lisätieto auringon nousu- ja laskuajoista voi olla myös 
 Tämä scripti laskee auringon nousu- ja laskuajat ja lähettää mqtt-komennon valojen
 päälle kytkemiseen tai sammuttamiseen.
 
-Lisäksi tämä scripti kuuntelee tuleeko liikesensoreilta tietoa liikkeestä ja laittaa valot päälle mikäli
-aurinko on jo laskenut. LIIKE_PAALLAPITO_AIKA määrittää miten pitkään valoja pidetään päällä liikkeen havaitsemisen
-jälkeen.
+Lisäksi tämä scripti tarkkailee tuleeko liikesensoreilta tietoa liikkeestä ja laittaa valot päälle mikäli
+aurinko on jo laskenut ja ajastimella ylläpidetty aika on ylitetty. Liikesensorin mikropython koodin ESP32:lle
+löydät githubistani Divergentti-nimellä.
 
-Muuttujina valojen päälläolon suhteen ovat VALOT_POIS_KLO ja VALO_ENNAKKO_AIKA.
-- VALOT_POIS tarkoittaa ehdotonta aikaa, jolloin valot laitetaan pois (string TT:MM)
-- VALO_ENNAKKO_AIKA tarkoittaa aikaa jolloin valot sytytetään ennen auringonnousua (string TT:MM).
-- VALO_ENNAKKO_PAALLE on aika joka pidetään valoja päällä ennen VALO_ENNAKKO_AIKA loppumista mikäli aurinko laskenut.
+MUUTTUJAT: parametrit.py-tiedostosta tuodaan tarvittavat muuttujat. Tähän scriptiin keskeisesti
+vaikuttavat muuttujat ovat:
+
+1. LIIKE_PAALLAPITO_AIKA määrittää miten pitkään valoja pidetään päällä liikkeen havaitsemisen jälkeen (Int sekunteja).
+2. VALOT_POIS tarkoittaa ehdotonta aikaa, jolloin valot laitetaan pois (string TT:MM)
+3. VALO_ENNAKKO_AIKA tarkoittaa aikaa jolloin valot sytytetään ennen auringonnousua (string TT:MM).
+4. VALO_ENNAKKO_PAALLE on aika joka pidetään valoja päällä ennen VALO_ENNAKKO_AIKA loppumista mikäli aurinko laskenut (string TT:MM)
 
 Ajat ovat paikallisaikaa (parametrit.py-tiedostossa).
 Laskennassa hyödynnetään suntime-scriptiä, minkä voit asentaa komennolla:
 
 pip3 install suntime
 
-14.9.2020 Jari Hiltunen
+15.9.2020 Jari Hiltunen
 """
 
 import paho.mqtt.client as mqtt  # mqtt kirjasto
@@ -46,15 +49,16 @@ aurinko_laskenut = False
 aikavyohyke = tz.tzlocal()
 liiketta_havaittu_klo = datetime.datetime.now().astimezone(aikavyohyke)
 liike_loppunut_klo = datetime.datetime.now().astimezone(aikavyohyke)
+edellinen_virhe_klo = datetime.datetime.now().astimezone(aikavyohyke)
 liiketta_havaittu = False
 
 
-''' Laskentaobjektit '''
+''' Laskentaobjektit - longitudin ja latitudin saat osoitteesi perusteella Google Mapsista '''
 aurinko = Sun(LATITUDI, LONGITUDI)
 
-''' mqtt-objektit'''
-mqttvalot = mqtt.Client("valojenohjaus-laskettu")  # mqtt objektin luominen, tulla olla uniikki nimi
-mqttliiketieto = mqtt.Client("valojenohjaus-liiketieto")  # mqtt objektin luominen, tulla olla uniikki nimi
+''' mqtt-objektit - nimet näkyvät mqtt-palvelimen mosquitto-hakemiston logissa'''
+mqttvalot = mqtt.Client("valojenohjaus-laskettu")  # mqtt objektin luominen, tulee olla uniikki nimi
+mqttliiketieto = mqtt.Client("valojenohjaus-liiketieto")  # mqtt objektin luominen, tulee olla uniikki nimi
 
 
 def mqttvalot_yhdista(mqttvalot, userdata, flags, rc):
@@ -77,6 +81,37 @@ def mqttliike_pura_yhteys(mqttliiketieto, userdata, rc=0):
     mqttliiketieto.loop_stop()
 
 
+def virhetila_kasittely(virhe, scripti):
+    global edellinen_virhe_klo
+    
+    ''' Käsitellään virheet ja estetään esimerkiksi logitiedoston täyttyminen virheistä. 
+    IN: virheen koodi, scriptin nimi str '''
+    print ("Tapahtui virhe: %s \nScriptissä: %s" %(virhe, scripti))
+    logging.error("Virhe: %s scriptissa %s"  %(virhe, scripti))
+    uusi_virhe_klo = datetime.datetime.now().astimezone(aikavyohyke)
+    
+    ''' Erityinen tarkistus mqtt-yhteydelle '''
+    if (scripti == "looppi") and (mqttliiketieto.is_connected() is False) or (mqttvalot.is_connected() is False):
+                print("Yhteys mqtt ei ole toiminnassa %s" % datetime.datetime.now())
+                ''' Alusettaan yhteydet uudelleen ja odotetaan hetki '''
+                mqttliiketieto.disconnect()
+                mqttvalot.disconnect()
+                time.sleep(2)
+                alustus()
+    
+    virhe_delta = uusi_virhe_klo - edellinen_virhe_klo
+    
+    
+    if virhe_delta.total_seconds() < 5:
+        ''' Virheitä tulee enemmän kuin yksi viidessä sekunnissa '''
+        print ("Syntyy liikaa virheitä, lopetetaan scriptit!")
+        logging.error("Syntyy liikaa virheitä, scriptin toiminta lopetettu klo: %s " % datetime.datetime.now().astimezone(aikavyohyke) )
+        raise 
+    else:
+        edellinen_virhe_klo == uusi_virhe_klo     
+  
+
+
 def valojen_ohjaus(status):
     """ Status on joko 1 tai 0 riippuen siitä mitä releelle lähetetään """
     try:
@@ -89,10 +124,7 @@ def valojen_ohjaus(status):
         pass
 
     except OSError:
-        print("Virhe %d" % OSError)
-        logging.error('Valonohjaus OS-virhe %s' % OSError)
-        print("Yhteysongelmia!")
-        logging.debug("Yhteys mqtt-palvelimeen ei onnistu!")
+        virhetila_kasittely(OSError, "valojen_ohjaus")
         mqttliiketieto.disconnect()
         mqttvalot.disconnect()
         return False
@@ -138,8 +170,7 @@ def alustus():
         mqttvalot.loop_start()
 
     except OSError:
-        print("Alustusvirhe %s" % OSError)
-        logging.error('Alustusvirhe %s' % OSError)
+        virhetila_kasittely(OSError, "alustus")
         return False
 
     return True
@@ -174,22 +205,9 @@ def ohjausluuppi():
     """ Suoritetaan looppia kunnes toiminta katkaistaan"""
     while True:
         ''' Loopataan ja odotellaan samalla mqtt-sanomia'''
-        try:
-
-            if mqttliiketieto.is_connected() is False or mqttvalot.is_connected() is False:
-                print("Yhteys mqtt ei ole toiminnassa %s" % datetime.datetime.now())
-                logging.error('Yhteys mqtt ei ole toiminnassa %s' % datetime.datetime.now())
-                ''' Alusettaan yhteydet uudelleen '''
-                mqttliiketieto.disconnect()
-                mqttvalot.disconnect()
-                alustus()
-
-        except AttributeError:
-            pass
-        except OSError:
-            print("Alustusvirhe %s" % OSError)
-            logging.error('Valojenohjaus mqttyhteysvirhe %s' % OSError)
-
+        if (mqttliiketieto.is_connected() is False) or (mqttvalot.is_connected() is False):
+            virhetila_kasittely("mqttyhteys", "looppi")
+        
         ''' Huom! Palauttaa UTC-ajan ilman astitimezonea'''
         auringon_nousu_tanaan = aurinko.get_sunrise_time().astimezone(aikavyohyke)
         auringon_lasku_tanaan = aurinko.get_sunset_time().astimezone(aikavyohyke)
