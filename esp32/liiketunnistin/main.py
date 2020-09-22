@@ -119,21 +119,15 @@ def restart_and_reconnect():
     machine.reset()
     # resetoidaan
 
-
-def alustus():
-    # alustus
-    mqtt_palvelin_yhdista()
-
-
 def seuraa_liiketta():
-    alustus()
+    mqtt_palvelin_yhdista()
     on_aika = utime.time()
     ilmoitettu_on = False
     ilmoitettu_off = False
 
     while True:
         try:
-            pir_tila = pir.value
+            pir_tila = pir.value()
             if (pir_tila == 0) and (ilmoitettu_off is False):
                 ''' Nollataan ilmoitus'''
                 off_aika = utime.time()
