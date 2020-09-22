@@ -4,14 +4,16 @@ import machine
 import network
 from ntptime import settime
 import esp
-import webrepl #webbihallinta - asenna komennolla import webrepl_setup
+import webrepl # webbihallinta - asenna komennolla import webrepl_setup
 esp.osdebug(None)
-#roskankeruuproseduuri
-import gc
-gc.collect()
+
+machine.freq(240000000) # Aluksi maksimipotku prosessoriin
+
 from time import sleep
 # Parametrit tuodaan parametrit.py-tiedostosta
-from parametrit import SSID1, SSID2,SALASANA1,SALASANA2
+from parametrit import SSID1, SSID2,SALASANA1,SALASANA2, WEBREPL_SALASANA
+
+webrepl.start(password=WEBREPL_SALASANA)
 wificlient_if = network.WLAN(network.STA_IF)
 wificlient_if.active(False)
 
@@ -21,7 +23,7 @@ def yhdista_wifi(ssid_nimi, salasana):
     print("Kokeillaan %s" %ssid_nimi)
     wificlient_if.active(True)
     wificlient_if.connect(ssid_nimi, salasana)
-    time.sleep(3)
+    time.sleep(2)
     if wificlient_if.isconnected():
         vilkuta_ledi(2)
         print('Verkon kokoonpano:', wificlient_if.ifconfig())
@@ -54,10 +56,14 @@ def vilkuta_ledi(kertaa):
         utime.sleep_ms(100)
 
 if yhdista_wifi(SSID1, SALASANA1):
-    print("Jatketaan %s verkon kanssa" %SSID1)
+    time.sleep(1)
+    print("Jatketaan %s verkon kanssa. Signaalitaso %s" % (SSID1, wificlient_if.status('rssi')))
+    machine.freq(80000000)  # hidastetaan
 
 elif yhdista_wifi(SSID2, SALASANA2):
-    print("Jatketaan %s verkon kanssa" % SSID2)
+    time.sleep(1)
+    print("Jatketaan %s verkon kanssa. Signaalitaso %s" % (SSID2, wificlient_if.status('rssi')))
+    machine.freq(80000000)  # hidastetaan
 
 else:
     ei_voida_yhdistaa()
