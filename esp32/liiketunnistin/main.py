@@ -28,6 +28,7 @@
     https://github.com/micropython/micropython-lib/tree/master/umqtt.simple
 
     22.9.2020: Paranneltu WiFi-objektin hallintaa ja mqtt muutettu retain-tyyppiseksi.
+    23.9.2020: Lisätty virheiden kirjaus tiedostoon ja lähetys mqtt-kanavaan
 """
 import time
 import utime
@@ -35,20 +36,32 @@ import machine  # tuodaan koko kirjasto
 from machine import Pin
 from umqttsimple import MQTTClient
 import gc
+import os
 # tuodaan parametrit tiedostosta parametrit.py
 from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
-    MQTT_SALASANA, PIR_PINNI, AIHE_LIIKETUNNISTIN
+    MQTT_SALASANA, PIR_PINNI, AIHE_LIIKETUNNISTIN, AIHE_VIRHEET
 # tuodaan bootis wifi-ap:n objekti
 from boot import wificlient_if
 
 gc.enable()  # aktivoidaan automaattinen roskankeruu
 
-print("Prosessorin nopeus asetettu: %s" % machine.freq())
-
 client = MQTTClient(CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, MQTT_SALASANA)
 
 # Liikesensorin pinni
 pir = Pin(PIR_PINNI, Pin.IN)
+
+
+def raportoi_virhe(virhe):
+    # IN: str virhe = virheen tekstiosa
+    try:
+        tiedosto = open('virheet.txt', "r")
+        # mikali tiedosto on olemassa, jatketaan
+    except OSError:  # avaus ei onnistu, luodaan uusi
+        tiedosto = open('virheet.txt', 'w')
+    virheviesti = str(ratkaise_aika()) + " uptime: " + str(utime.ticks_ms()) + " laite: " \
+        + str(CLIENT_ID) + " virhe: " + str(virhe) + " muistia: " + str(gc.mem_free())
+    tiedosto.write(virheviesti)
+    tiedosto.close()
 
 
 def ratkaise_aika():
@@ -73,9 +86,11 @@ def mqtt_palvelin_yhdista():
             return True
         except OSError as e:
             print("% s:  Ei voida yhdistaa mqtt-palvelimeen! %s " % (aika, e))
+            raportoi_virhe(e)
             restart_and_reconnect()
     elif wificlient_if.isconnected() is False:
         print("%s: Yhteys on poikki! Signaalitaso %s " % (aika, wificlient_if.status('rssi')))
+        raportoi_virhe("Yhteys poikki rssi: %s" % wificlient_if.status('rssi'))
         restart_and_reconnect()
 
 
@@ -91,13 +106,14 @@ def laheta_pir(status):
         try:
             client.publish(AIHE_LIIKETUNNISTIN, str(status), retain=True)  # 1 = liiketta, 0 = liike loppunut
             gc.collect()  # puhdistetaan roskat
-            #  print("Muistia vapaana %s" % gc.mem_free())
             return True
         except OSError as e:
             print("% s:  Ei voida yhdistaa mqtt-palvelimeen! %s " % (aika, e))
+            raportoi_virhe(e)
             restart_and_reconnect()
     else:
         print("%s: Yhteys on poikki! Signaalitaso %s. Bootataan. " % (aika, wificlient_if.status('rssi')))
+        raportoi_virhe("Yhteys poikki rssi: %s" % wificlient_if.status('rssi'))
         restart_and_reconnect()
 
 
@@ -121,8 +137,29 @@ def restart_and_reconnect():
     # resetoidaan
 
 
+def tarkista_virhetiedosto():
+    try:
+        tiedosto = open('virheet.txt', "r")
+        # mikali tiedosto on olemassa, jatketaan, silla virheita on ilmoitettu
+    except OSError:  # avaus ei onnistu, eli tiedostoa ei ole, jatketaan koska ei virheita
+        return
+        #  Luetaan tiedoston rivit ja ilmoitetaan mqtt:lla
+    rivit = tiedosto.readline()
+    while rivit:
+        try:
+            client.publish(AIHE_VIRHEET, str(rivit), retain=False)
+            rivit = tiedosto.readline()
+        except OSError as e:
+            #  Ei onnistu, joten bootataan
+            restart_and_reconnect()
+    #  Tiedosto luettu ja mqtt:lla ilmoitettu, suljetaan ja poistetaan se
+    tiedosto.close()
+    os.remove('virheet.txt')
+
+
 def seuraa_liiketta():
     mqtt_palvelin_yhdista()
+    tarkista_virhetiedosto()
     on_aika = utime.time()
     ilmoitettu_on = False
     ilmoitettu_off = False
@@ -135,6 +172,7 @@ def seuraa_liiketta():
                 ''' Nollataan ilmoitus'''
                 off_aika = utime.time()
                 print("%s UTC : ilmoitettu liikkeen lopusta. Liike kesti %s sekuntia." % (aika, (off_aika - on_aika)))
+                print("Uptime: %s " % (utime.ticks_ms()))
                 laheta_pir(0)
                 ilmoitettu_off = True
                 ilmoitettu_on = False
@@ -146,6 +184,9 @@ def seuraa_liiketta():
                 laheta_pir(1)
                 ilmoitettu_on = True
                 ilmoitettu_off = False
+
+        except AttributeError:
+            pass
 
         except KeyboardInterrupt:
             raise
