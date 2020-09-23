@@ -78,6 +78,7 @@ def mqtt_palvelin_yhdista():
         print("%s: Yhteys on poikki! Signaalitaso %s " % (aika, wificlient_if.status('rssi')))
         restart_and_reconnect()
 
+
 def viestin_saapuessa():
     #  Tämä on turha, mutta voisi käyttää tilanteessa jossa mqtt-viesti saapuu
     vilkuta_ledi(1)
@@ -90,7 +91,7 @@ def laheta_pir(status):
         try:
             client.publish(AIHE_LIIKETUNNISTIN, str(status), retain=True)  # 1 = liiketta, 0 = liike loppunut
             gc.collect()  # puhdistetaan roskat
-            print("Muistia vapaana %s" % gc.mem_free())
+            #  print("Muistia vapaana %s" % gc.mem_free())
             return True
         except OSError as e:
             print("% s:  Ei voida yhdistaa mqtt-palvelimeen! %s " % (aika, e))
@@ -119,6 +120,7 @@ def restart_and_reconnect():
     machine.reset()
     # resetoidaan
 
+
 def seuraa_liiketta():
     mqtt_palvelin_yhdista()
     on_aika = utime.time()
@@ -129,16 +131,18 @@ def seuraa_liiketta():
         try:
             pir_tila = pir.value()
             if (pir_tila == 0) and (ilmoitettu_off is False):
+                aika = ratkaise_aika()
                 ''' Nollataan ilmoitus'''
                 off_aika = utime.time()
-                print("Ilmoitettu liikkeen lopusta. Liike kesti %s" % (off_aika - on_aika))
+                print("%s UTC : ilmoitettu liikkeen lopusta. Liike kesti %s sekuntia." % (aika, (off_aika - on_aika)))
                 laheta_pir(0)
                 ilmoitettu_off = True
                 ilmoitettu_on = False
             elif (pir_tila == 1) and (ilmoitettu_on is False):
                 ''' Liikettä havaittu !'''
+                aika = ratkaise_aika()
                 on_aika = utime.time()
-                print("Ilmoitetaan liikkeesta!")
+                print("%s UTC: ilmoitetaan liikkeesta!" % aika)
                 laheta_pir(1)
                 ilmoitettu_on = True
                 ilmoitettu_off = False
