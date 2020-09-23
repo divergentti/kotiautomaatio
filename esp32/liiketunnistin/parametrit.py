@@ -11,3 +11,4 @@ PIR_PINNI = 22
 PIR_LIIKE_NOLLAUSAIKA = 5
 AIHE_LIIKETUNNISTIN = 'koti/ulko/etela/pir1'
 NTPPALVELIN = 'pool.ntp.org'
+AIHE_VIRHEET = 'virheet/sensorit/esp32/virhe'
