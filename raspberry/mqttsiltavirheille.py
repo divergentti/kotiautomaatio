@@ -4,6 +4,7 @@
 
 Tämä versio on tarkoitettu mqtt-virhesanomien siirtämiseen virhetiedostoon.
 MQTT-sanoma voi olla esimerkiksi muotoa virheet/sijainti/laite (määritä parametrit.py-tiedostossa)
+ --> virheviestin rakenne: pvm + aika;uptime;laitenimi;ip;virhe;vapaa muisti
 
 Kaikki datatyypit ovat str.
 
@@ -67,12 +68,8 @@ def _send_sensor_data_to_errorfile(sensor_data):
     json_body = [
         {
             'laite': sensor_data.laite,
-            'paikkatieto': {
-                'sijainti': sensor_data.sijainti
-            },
-            'virheet': {
-                'virhe': sensor_data.virhe
-            }
+            'sijainti': sensor_data.sijainti,
+            'virhe':  sensor_data.virhe
         }
     ]
     loggeri.debug(json_body)
