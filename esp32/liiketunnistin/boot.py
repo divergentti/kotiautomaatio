@@ -16,6 +16,7 @@ wificlient_if = network.WLAN(network.STA_IF)
 wificlient_if.active(False)
 ntptime.host = NTPPALVELIN
 
+
 def yhdista_wifi(ssid_nimi, salasana):
     global wificlient_if
     print("Kokeillaan %s" % ssid_nimi)
@@ -23,8 +24,9 @@ def yhdista_wifi(ssid_nimi, salasana):
     wificlient_if.connect(ssid_nimi, salasana)
     time.sleep(2)
     if wificlient_if.isconnected():
-        vilkuta_ledi(2)
         print('Verkon kokoonpano:', wificlient_if.ifconfig())
+        print("Signaalitaso %s" % (wificlient_if.status('rssi')))
+        aseta_aika()
         return True
     else:
         return False
@@ -55,24 +57,17 @@ def aseta_aika():
         ei_voida_yhdistaa()
     try:
         webrepl.start()  # kaynnistetaan WebREPL
+        machine.freq(80000000)  # hidastetaan
     except OSError as e:
         print("WebREPL ei kaynnisty. Virhe %s" % e)
         ei_voida_yhdistaa()
 
+
 try:
     yhdista_wifi(SSID1, SALASANA1)
-    time.sleep(3)
-    if wificlient_if.isconnected() is True:
-        print("Jatketaan %s verkon kanssa. Signaalitaso %s" % (SSID1, wificlient_if.status('rssi')))
-        aseta_aika()
-        machine.freq(80000000)  # hidastetaan
-    else:
+except False:
+    try:
         yhdista_wifi(SSID2, SALASANA2)
-        time.sleep(3)
-        if wificlient_if.isconnected() is False:
-            ei_voida_yhdistaa()
-        print("Jatketaan %s verkon kanssa. Signaalitaso %s" % (SSID2, wificlient_if.status('rssi')))
-        machine.freq(80000000)  # hidastetaan
-        aseta_aika()
-except OSError as e:
-    ei_voida_yhdistaa()
+    except False:
+        print("Yhdistys ei onnistu, bootataan!")
+        ei_voida_yhdistaa()
