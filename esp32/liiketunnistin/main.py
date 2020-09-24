@@ -28,7 +28,8 @@
     https://github.com/micropython/micropython-lib/tree/master/umqtt.simple
 
     22.9.2020: Paranneltu WiFi-objektin hallintaa ja mqtt muutettu retain-tyyppiseksi.
-    23.9.2020: Lisätty virheiden kirjaus tiedostoon ja lähetys mqtt-kanavaan
+    24.9.2020: Lisätty virheiden kirjaus tiedostoon ja lähetys mqtt-kanavaan. Poistettu ledivilkutus.
+               Virheiden kirjauksessa erottimena toimii ";" eli puolipilkulla erotetut arvot.
 """
 import time
 import utime
@@ -58,18 +59,16 @@ def raportoi_virhe(virhe):
         # mikali tiedosto on olemassa, jatketaan
     except OSError:  # avaus ei onnistu, luodaan uusi
         tiedosto = open('virheet.txt', 'w')
-    virheviesti = str(ratkaise_aika()) + " uptime: " + str(utime.ticks_ms()) + " laite: " \
-        + str(CLIENT_ID) + " virhe: " + str(virhe) + " muistia: " + str(gc.mem_free())
+        # virheviestin rakenne: pvm + aika;uptime;laitenimi;ip;virhe;vapaa muisti
+    virheviesti = str(ratkaise_aika()) + ";" + str(utime.ticks_ms()) + ";" \
+        + str(CLIENT_ID) + ";" + str(wificlient_if.ifconfig()) + ";" + str(virhe) +\
+        ";" + str(gc.mem_free())
     tiedosto.write(virheviesti)
     tiedosto.close()
 
 
 def ratkaise_aika():
     (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = utime.localtime()
-    # paivat = {0: "Ma", 1: "Ti", 2: "Ke", 3: "To", 4: "Pe", 5: "La", 6: "Su"}
-    # kuukaudet = {1: "Tam", 2: "Hel", 3: "Maa", 4: "Huh", 5: "Tou", 6: "Kes", 7: "Hei", 8: "Elo",
-    #          9: "Syy", 10: "Lok", 11: "Mar", 12: "Jou"}
-    # .format(paivat[viikonpva]), format(kuukaudet[kuukausi]),
     aika = "%s.%s.%s klo %s:%s:%s" % (kkpaiva, kuukausi, vuosi, "{:02d}".format(tunti),
                                       "{:02d}".format(minuutti), "{:02d}".format(sekunti))
     return aika
@@ -79,9 +78,7 @@ def mqtt_palvelin_yhdista():
     aika = ratkaise_aika()
     if wificlient_if.isconnected() is True:
         try:
-            client.set_callback(viestin_saapuessa)
             client.connect()
-            client.subscribe(AIHE_LIIKETUNNISTIN)
             print("Yhdistetty %s palvelimeen %s" % (client.client_id, client.server))
             return True
         except OSError as e:
@@ -92,12 +89,6 @@ def mqtt_palvelin_yhdista():
         print("%s: Yhteys on poikki! Signaalitaso %s " % (aika, wificlient_if.status('rssi')))
         raportoi_virhe("Yhteys poikki rssi: %s" % wificlient_if.status('rssi'))
         restart_and_reconnect()
-
-
-def viestin_saapuessa():
-    #  Tämä on turha, mutta voisi käyttää tilanteessa jossa mqtt-viesti saapuu
-    vilkuta_ledi(1)
-    return
 
 
 def laheta_pir(status):
@@ -117,21 +108,11 @@ def laheta_pir(status):
         restart_and_reconnect()
 
 
-def vilkuta_ledi(kertaa):
-    ledipinni = machine.Pin(2, machine.Pin.OUT)
-    for i in range(kertaa):
-        ledipinni.on()
-        utime.sleep_ms(100)
-        ledipinni.off()
-        utime.sleep_ms(100)
-
-
 def restart_and_reconnect():
     aika = ratkaise_aika()
     wificlient_if.disconnect()
     wificlient_if.active(False)
     print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
-    vilkuta_ledi(10)
     time.sleep(1)
     machine.reset()
     # resetoidaan
@@ -171,8 +152,8 @@ def seuraa_liiketta():
                 aika = ratkaise_aika()
                 ''' Nollataan ilmoitus'''
                 off_aika = utime.time()
-                print("%s UTC : ilmoitettu liikkeen lopusta. Liike kesti %s sekuntia." % (aika, (off_aika - on_aika)))
-                print("Uptime: %s " % (utime.ticks_ms()))
+                print("%s UTC : ilmoitettu liikkeen lopusta. Liike kesti %s sekuntia. Uptime %s" %
+                      (aika, (off_aika - on_aika), (utime.ticks_ms())))
                 laheta_pir(0)
                 ilmoitettu_off = True
                 ilmoitettu_on = False
@@ -192,7 +173,7 @@ def seuraa_liiketta():
             raise
 
         # lasketaan prosessorin kuormaa
-        time.sleep(0.01)
+        time.sleep(0.1)
 
 
 if __name__ == "__main__":
