@@ -34,18 +34,9 @@ def yhdista_wifi(ssid_nimi, salasana):
 
 def ei_voida_yhdistaa():
     print("Yhteys ei onnistu. Bootataan 1 s. kuluttua")
-    vilkuta_ledi(10)
     sleep(1)
     machine.reset()
 
-
-def vilkuta_ledi(kertaa):
-    ledipinni = machine.Pin(2, machine.Pin.OUT)
-    for i in range(kertaa):
-        ledipinni.on()
-        utime.sleep_ms(100)
-        ledipinni.off()
-        utime.sleep_ms(100)
 
 
 def aseta_aika():
