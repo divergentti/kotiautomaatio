@@ -1,99 +1,91 @@
-''' Alkuperäinen https://gist.github.com/zufardhiyaulhaq/fe322f61b3012114379235341b935539
+'''
 
-Tämä versio on tarkoitettu pelkkien mqtt-virhesanomien siirtämiseen Influx-tietokantaan.
+24.9.2020: MQTT-2-ErrorFile-loggeri
 
-MQTT-sanoma voi olla esimerkiksi muotoa virheet/sijainti/laite/virhe
+Tämä versio on tarkoitettu mqtt-virhesanomien siirtämiseen virhetiedostoon.
+MQTT-sanoma voi olla esimerkiksi muotoa virheet/sijainti/laite (määritä parametrit.py-tiedostossa)
 
-Kaikki datatyypit ovat str
+Kaikki datatyypit ovat str.
 
-23.9.2020 Jari Hiltunen
+Lainattu koodia mqtt-influxdb-bridge-koodista https://diyi0t.com/visualize-mqtt-data-with-influxdb-and-grafana/.
+
 '''
 
 import re
 from typing import NamedTuple
 import paho.mqtt.client as mqtt
-from influxdb import InfluxDBClient
-from parametrit import INFLUXDB_ADDRESS, INFLUXDB_USER, INFLUXDB_PASSWORD, INFLUXDB_DATABASE, MQTTSERVERI, \
-    MQTTSALARI, MQTTKAYTTAJA, MQTTSERVERIPORTTI
+import logging.handlers
+from parametrit import MQTTSERVERI, MQTTSALARI, MQTTKAYTTAJA, MQTTSERVERIPORTTI
 
-''' Tässä kiinteänä koti ensimmäisenä tasona. Huomaa alempana luokka SensorData '''
-MQTT_TOPIC = 'virheet/+/+/+'
-MQTT_REGEX = 'virheet/([^/]+)/([^/]+)/([^/]+)'
-MQTT_CLIENT_ID = 'MQTTInfluxDBSiltaVirheille'
+''' Tässä kiinteänä virheet ensimmäisenä tasona. Huomaa alempana luokka SensorData '''
+MQTT_TOPIC = 'virheet/+/+'
+MQTT_REGEX = 'virheet/([^/]+)/([^/]+)'
+MQTT_CLIENT_ID = 'MQTTErrorLoggeri'
 
-influxdb_client = InfluxDBClient(INFLUXDB_ADDRESS, 8086, INFLUXDB_USER, INFLUXDB_PASSWORD, None)
+''' Muuta logitiedoston polkua ja nimeä tarpeen mukaan. Tuotetaan megan kokoisia logitiedostoja max 5 kpl. '''
+LOG_FILENAME = 'mqtt-silta-virheille.out'
+loggeri = logging.getLogger('MQTT-VirheLoggeri')
+loggeri.setLevel(logging.DEBUG)
+handleri = logging.handlers.RotatingFileHandler(LOG_FILENAME, maxBytes=1000000, backupCount=5)
+loggeri.addHandler(handleri)
 
 
 class SensorData(NamedTuple):
-    paikka: str
+    """ Käsiteltävät tasot ja varsinainen virhe """
     sijainti: str
     laite: str
     virhe: str
 
 
 def on_connect(client, userdata, flags, rc):
-    """ The callback for when the client receives a CONNACK response from the server."""
-    print('Connected with result code ' + str(rc))
+    """ Yhdistys MQTT-topicciin """
+    print('Yhdistetty tilakodilla: ' + str(rc))
     client.subscribe(MQTT_TOPIC)
 
 
 def on_message(client, userdata, msg):
-    """The callback for when a PUBLISH message is received from the server."""
+    """ Suoritetaan kun viesti saapuu brokerilta """
     print(msg.topic + ' ' + str(msg.payload))
     sensor_data = _parse_mqtt_message(msg.topic, msg.payload.decode('utf-8'))
     if sensor_data is not None:
-        _send_sensor_data_to_influxdb(sensor_data)
+        _send_sensor_data_to_errorfile(sensor_data)
 
 
 def _parse_mqtt_message(topic, payload):
+    """ Parsitaan viestistä virheilmoitus """
     match = re.match(MQTT_REGEX, topic)
     if match:
-        paikka = match.group(1)
-        ''' Tähän lisätty direction, esimerkiksi etela'''
-        sijainti = match.group(2)
-        laite = match.group(3)
-        if laite == 'status':
-            return None
-        return SensorData(paikka, sijainti, laite, str(payload))
+        sijainti = match.group(1)
+        laite = match.group(2)
+        return SensorData(sijainti, laite, payload)
     else:
         return None
 
 
-def _send_sensor_data_to_influxdb(sensor_data):
+def _send_sensor_data_to_errorfile(sensor_data):
+    """ Tuotetaan json-rakenne ja tallennetaan logitiedostoon"""
     json_body = [
         {
             'laite': sensor_data.laite,
-            'tags': {
-                'sijainti': sensor_data.sijainti,
-                'paikka': sensor_data.paikka
+            'paikkatieto': {
+                'sijainti': sensor_data.sijainti
             },
-            'fields': {
+            'virheet': {
                 'virhe': sensor_data.virhe
             }
         }
     ]
-    influxdb_client.write_points(json_body)
-
-
-def _init_influxdb_database():
-    databases = influxdb_client.get_list_database()
-    if len(list(filter(lambda x: x['name'] == INFLUXDB_DATABASE, databases))) == 0:
-        influxdb_client.create_database(INFLUXDB_DATABASE)
-    influxdb_client.switch_database(INFLUXDB_DATABASE)
+    loggeri.debug(json_body)
 
 
 def main():
-    _init_influxdb_database()
-
     mqtt_client = mqtt.Client(MQTT_CLIENT_ID)
     mqtt_client.username_pw_set(MQTTKAYTTAJA, MQTTSALARI)
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
-
     mqtt_client.connect(MQTTSERVERI, MQTTSERVERIPORTTI)
     mqtt_client.loop_forever()
 
-
 if __name__ == '__main__':
-    print('MQTT to InfluxDB bridge')
+    print('MQTT to Error Log bridge')
     main()
