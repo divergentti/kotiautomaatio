@@ -139,6 +139,7 @@ def tarkista_virhetiedosto():
 
 
 def seuraa_liiketta():
+    time.sleep(3)
     mqtt_palvelin_yhdista()
     tarkista_virhetiedosto()
     on_aika = utime.time()
