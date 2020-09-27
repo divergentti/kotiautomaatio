@@ -23,7 +23,9 @@ MQTT_TOPIC = 'virheet/+/+'
 MQTT_REGEX = 'virheet/([^/]+)/([^/]+)'
 MQTT_CLIENT_ID = 'MQTTErrorLoggeri'
 
-''' Muuta logitiedoston polkua ja nimeä tarpeen mukaan. Tuotetaan megan kokoisia logitiedostoja max 5 kpl. '''
+''' Muuta logitiedoston polkua ja nimeä tarpeen mukaan. Tuotetaan megan kokoisia logitiedostoja max 5 kpl. 
+    Mikäli scripti käynnistetään daemontoolsilla, laita koko polku virhetiedostolle! Katso toiminta ps -aux | grep readproctitle
+'''
 LOG_FILENAME = 'mqtt-silta-virheille.out'
 loggeri = logging.getLogger('MQTT-VirheLoggeri')
 loggeri.setLevel(logging.DEBUG)
