@@ -7,6 +7,7 @@ MQTT_PORTTI = '1883'
 MQTT_KAYTTAJA = 'useri'
 MQTT_SALASANA = 'salari'
 CLIENT_ID = "ESP32-kaasujasisalampoanturi"
+DHCP_NIMI = "ESP32-kaasujasisalampoanturi"
 PINNI_NUMERO = 22
 MQ135_PINNI = 36
 SISA_LAMPO = b'koti/sisa/olohuone/lampo'
