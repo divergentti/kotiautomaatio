@@ -71,14 +71,16 @@ mqttvalot.username_pw_set(MQTTKAYTTAJA, MQTTSALARI)  # mqtt useri ja salari
 
 def yhdista(mqttvalot, userdata, flags, rc):
     """ Tilataan aiheet mqtt-palvelimelle. [0] ohjausobjekteissa tarkoittaa liikeanturia """
-    try:
-        mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
-    except OSError as e:
-        raise Exception("MQTT-palvelinongelma! %s" % mqttvalot.is_connected())
-    print("Yhdistetty statuksella: " + str(rc))
-    # mqttvalot.subscribe("$SYS/#")
-    for z in range(len(ohjausobjektit)):
-        mqttvalot.subscribe(ohjausobjektit[z][0].liikeaihe)
+    if mqttvalot.isconnected() is False:
+        try:
+            mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
+        except OSError as e:
+            raise Exception("MQTT-palvelinongelma! %s" % mqttvalot.is_connected())
+    else:
+        print("Yhdistetty statuksella: " + str(rc))
+        # mqttvalot.subscribe("$SYS/#")
+        for z in range(len(ohjausobjektit)):
+            mqttvalot.subscribe(ohjausobjektit[z][0].liikeaihe)
 
 
 def pura_yhteys():
