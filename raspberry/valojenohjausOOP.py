@@ -29,7 +29,7 @@ Laskennassa hyödynnetään suntime-scriptiä, minkä voit asentaa komennolla:
 
 pip3 install suntime
 
-6.9.2020 Jari Hiltunen
+7.10.2020 Jari Hiltunen
 """
 
 import paho.mqtt.client as mqtt  # mqtt kirjasto
@@ -45,9 +45,12 @@ from parametrit import LATITUDI, LONGITUDI, MQTTSERVERIPORTTI, MQTTSERVERI, MQTT
     LIIKE_PAALLAPITO_AIKA_AUTOKATOS_1, VARASTO_POHJOINEN_RELE1_MQTTAIHE_1, VALOT_POIS_KLO_ETELA_1, \
     VALO_ENNAKKO_AIKA_ETELA_1, LIIKE_PAALLAPITO_AIKA_ETELA_1, LIIKETUNNISTIN_AUTOKATOS
 
-logging.basicConfig(level=logging.ERROR)
-logging.error('Virheet kirjataan lokiin')
-
+logging.basicConfig(level=logging.ERROR,
+                    filename='valoohjausOOPvirheet.log')
+logging.basicConfig(level=logging.INFO,
+                    filename='valoohjausOOPinfo.log')
+logging.error('Virheet kirjataan lokiin valoohjausOOPvirheet.log')
+logging.info('Statukset kirjataan lokiin valoohjausOOPinfo.log')
 
 ''' Globaalit päivämäärämuuttujat'''
 aikavyohyke = tz.tzlocal()
@@ -57,11 +60,12 @@ aurinko_laskenut = False
 aika_nyt = datetime.datetime.now().astimezone(aikavyohyke)
 ohjausobjektit = []
 
-''' testaamista varten
+''' Testaamista varten 
+
 testitunnit = 18
 testiminuutit = 0
-'''
 
+'''
 
 ''' Laskentaobjektit - longitudin ja latitudin saat osoitteesi perusteella Google Mapsista '''
 aurinko = Sun(LATITUDI, LONGITUDI)
@@ -69,18 +73,19 @@ aurinko = Sun(LATITUDI, LONGITUDI)
 mqttvalot = mqtt.Client("valojenohjaus-ohjaus-OOP")
 mqttvalot.username_pw_set(MQTTKAYTTAJA, MQTTSALARI)  # mqtt useri ja salari
 
-def yhdista(mqttvalot, userdata, flags, rc):
-    """ Tilataan aiheet mqtt-palvelimelle. [0] ohjausobjekteissa tarkoittaa liikeanturia """
-    if mqttvalot.isconnected() is False:
+
+def yhdista(client, userdata, flags, rc):
+    if client.is_connected() is False:
         try:
-            mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
+            client.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
         except OSError as e:
-            raise Exception("MQTT-palvelinongelma! %s" % mqttvalot.is_connected())
-    else:
+            logging.error("MQTT-palvelinongelma %s", e)
+            raise Exception("MQTT-palvelinongelma! %s" % e)
         print("Yhdistetty statuksella: " + str(rc))
-        # mqttvalot.subscribe("$SYS/#")
-        for z in range(len(ohjausobjektit)):
-            mqttvalot.subscribe(ohjausobjektit[z][0].liikeaihe)
+    """ Tilataan aiheet mqtt-palvelimelle. [0] ohjausobjekteissa tarkoittaa liikeanturia """
+    # mqttvalot.subscribe("$SYS/#")
+    for z in range(len(ohjausobjektit)):
+        client.subscribe(ohjausobjektit[z][0].liikeaihe)
 
 
 def pura_yhteys():
@@ -88,12 +93,13 @@ def pura_yhteys():
     try:
         mqttvalot.disconnect()
     except OSError as e:
-        raise Exception("MQTT-palvelinongelma! %s" % mqttvalot.is_connected())
+        logging.error("MQTT-palvelinongelma! %s", e)
+        raise Exception("MQTT-palvelinongelma! %s" % e)
 
 
 class Valojenohjaus:
     """ Konstruktorissa muodostetaan valoja ohjaava objekti, jota päivitetään loopissa """
-    global mqttvalot, aika_nyt
+    global aika_nyt
 
     def __init__(self, ohjausaihe, aamu_paalle_aika, ilta_pois_aika):  # konstruktori
         """
@@ -103,6 +109,7 @@ class Valojenohjaus:
        3. IN: ilta_pois_aika tarkoittaa ehdotonta aikaa, jolloin valot laitetaan pois (string TT:MM)
           esimerkiksi 21:00
 
+          Kutsumalla muuta_valo_paalle_aika (2) tai muuta_valo_pois_aika (3) voit muuttaa aikoja.
        """
 
         if (ohjausaihe is None) or (aamu_paalle_aika is None) or (ilta_pois_aika is None):
@@ -125,12 +132,17 @@ class Valojenohjaus:
         self.valot_ohjattu_pois = None
         self.valot_ohjattu_paalle = None
 
+    def __del__(self):
+        """ Konstruktorin poistoa varten, joko roskankeruurutiinin gc tai del-komennon vuoksi """
 
-    def tilaa_aihe(self):
-        mqttvalot.subscribe(self.ohjausaihe)  # tilaa aihe
+    def __str__(self):
+        """ Palauttaa ohjausaiheen """
+        return self.ohjausaihe
 
-    def poista_aihe(self):
-        mqttvalot.unsubscribe(self.ohjausaihe)  # poista aihe
+    def __repr__(self):
+        """ Palauttaa luokan nimen, ohjausaiheen ja statukset """
+        return '[%s: %s, %s, %s, %s]' % (self.__class__.__name__, self.ohjausaihe,
+                                         self.valot_paalla, self.pitoajalla, self.liikeyllapitoajalla)
 
     def uusi_valo_paalle_aika(self):
         #  Aika ennen auringonnousua
@@ -151,24 +163,41 @@ class Valojenohjaus:
             self.ilta_pois_aika = aika_nyt.replace(hour=tunnit, minute=minuutit)
             return self.ilta_pois_aika
 
+    def muuta_valo_paalle_aika(self, tunnit, minuutit):
+        #  IN: tunnit ja minuutit int
+        if (tunnit < 0) or (tunnit > 24) or (minuutit < 0) or (minuutit > 59):
+            print("Valojen aikamuutoksessa väärä arvo!")
+            return False
+        else:
+            self.aamu_paalle_aika = aika_nyt.replace(hour=tunnit, minute=minuutit)
+            return self.aamu_paalle_aika
+
     def valojen_ohjaus(self, status):
         """ IN: status on joko int 1 tai 0 riippuen siitä mitä releelle lähetetään """
-        if status == 0:
-            self.valot_paalla = False
+        if mqttvalot.is_connected() is False:
+            try:
+                mqttvalot.loop_stop()
+                mqttvalot.loop_start()
+            except mqttvalot.is_connected() is False:
+                raise Exception("Yhteys palvelimeen %s ei toimi!" % MQTTSERVERI)
         else:
-            self.valot_paalla = True
-        try:
-            mqttvalot.publish(self.ohjausaihe, payload=status, retain=True)
-
-        except AttributeError:
-            pass
-
-        except OSError as e:
-            raise Exception("Virhetila %s", e)
+            if (status < 0) or (status > 1):
+                logging.error("%s Valojen ohjausarvon tulee olla 0 tai 1!" % self.__class__.__name__)
+                raise Exception("Valojen ohjausarvon tulee olla 0 tai 1!")
+            elif status == 0:
+                self.valot_paalla = False
+            elif status == 1:
+                self.valot_paalla = True
+            try:
+                mqttvalot.publish(self.ohjausaihe, payload=status, retain=True)
+            except AttributeError:
+                pass
+            except OSError as e:
+                logging.error("%s Virhe %s!" % (self.__class__.__name__, e))
+                raise Exception("Virhetila %s", e)
 
 
 class Liikeohjaus:
-    global mqttvalot
     """ Konstruktorissa muodostetaan liikettä havainnoivat objektit """
 
     def __init__(self, liikeaihe, paallapitoaika):
@@ -176,25 +205,34 @@ class Liikeohjaus:
         if (liikeaihe is None) or (paallapitoaika is None):
             raise Exception("Aihe tai päälläpitoaika puuttuu!")
         self.liikeaihe = liikeaihe
-        #  Aihe tilataan silloin kun objekti luodaan
-        mqttvalot.subscribe(self.liikeaihe)  # tilaa aihe
         self.paallapitoaika = paallapitoaika
         self.liiketta_havaittu = False
         self.liiketta_havaittu_klo = datetime.datetime.now().astimezone(aikavyohyke)
         self.liike_loppunut_klo = datetime.datetime.now().astimezone(aikavyohyke)
         self.loppumisaika_delta = 0
 
-    def tilaa_aihe(self, mqttvalot, userdata, flags, rc):
-        mqttvalot.subscribe(self.liikeaihe)  # tilaa aihe
+    def __del__(self):
+        """ Konstruktorin poistoa varten, joko roskankeruurutiinin gc tai del-komennon vuoksi """
 
-    def poista_aihe(self):
-        mqttvalot.unsubscribe(self.liikeaihe)  # poista aihe
+    def __str__(self):
+        """ Palauttaa liikeaiheen """
+        return self.liikeaihe
+
+    def __repr__(self):
+        """ Palauttaa luokan nimen, liikeaiheen ja statukset """
+        return '[%s: %s, %s, %s, %s]' % (self.__class__.__name__, self.liikeaihe,
+                                         self.liiketta_havaittu, self.liiketta_havaittu_klo,
+                                         self.liike_loppunut_klo)
+
+    def muuta_paallapito_aika(self, aika):
+        """ Muuttaa paallapitoaikaa. IN: int sekunteja """
+        self.paallapitoaika = aika
 
 
-def viestiliike(mqttvalot, userdata, message):
+def viestiliike(client, userdata, message):
     global ohjausobjektit
     """ Selvitetään mille liikeobjektille viesti kuuluu [0] = liike, [1] = ohjaus """
-    #  print("Viesti %s : %s" % (message.topic, message.payload))
+    # print("Viesti %s : %s" % (message.topic, message.payload))
     for z in range(len(ohjausobjektit)):
         if message.topic == ohjausobjektit[z][0].liikeaihe:
             viesti = int(message.payload)
@@ -217,6 +255,7 @@ def valojen_sytytys_sammutus(objekti):
     try:
         objekti
     except NameError:
+        logging.error("%s Valojen ohjausobjektia ei löydy!" % objekti)
         raise Exception("Valojen ohjausobjektia ei löydy!")
 
     ''' Huom! Palauttaa UTC-ajan ilman astitimezonea'''
@@ -228,7 +267,8 @@ def valojen_sytytys_sammutus(objekti):
     ja muista vaihtaa datetime-kutusissa tzInfo=None'''
     aika_nyt = datetime.datetime.now().astimezone(aikavyohyke)
 
-    ''' Testaamista varten 
+    ''' Testaamista varten
+    
     global testitunnit, testiminuutit
     testiminuutit = testiminuutit + 1
     if testiminuutit >= 60:
@@ -238,8 +278,8 @@ def valojen_sytytys_sammutus(objekti):
             testitunnit = 0
     aika_nyt = aika_nyt.replace(hour=testitunnit, minute=testiminuutit)
     print("A: %s - AL: %s - AN: %s" % (aika_nyt.time(), auringon_lasku_tanaan.time(), auringon_nousu_tanaan.time()))
+    
     '''
-
 
     ''' Auringon nousu tai laskulogiikka '''
 
@@ -267,6 +307,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(1)
         objekti.pitoajalla = True
         objekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
+        logging.info("Aurinko laskenut.%s:Valot sytytetty klo: %s" % (objekti.ohjausaihe, objekti.valot_ohjattu_paalle))
         print("Aurinko laskenut. %s: Valot sytytetty klo: %s" % (objekti.ohjausaihe, objekti.valot_ohjattu_paalle))
 
     ''' Aurinko laskenut ja valot päällä, mutta sammutusaika saavutettu '''
@@ -275,8 +316,10 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(0)
         objekti.pitoajalla = False
         objekti.valot_ohjattu_pois = datetime.datetime.now().astimezone(aikavyohyke)
+        logging.info("Valot sammutettu. Valot olivat %s päällä %s" % (objekti.ohjausaihe, (objekti.valot_ohjattu_pois
+                                                                      - objekti.valot_ohjattu_paalle)))
         print("Valot sammutettu. Valot olivat %s päällä %s" % (objekti.ohjausaihe, (objekti.valot_ohjattu_pois
-                                                                                    - objekti.valot_ohjattu_paalle)))
+                                                               - objekti.valot_ohjattu_paalle)))
 
     ''' Aurinko laskenut ja aamu lähestyy. Tarkistetaan tuleeko valot sytyttää. '''
     if (objekti.valot_paalla is False) and (aurinko_laskenut is True) and (aamuyossa is True) and \
@@ -284,6 +327,8 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(1)
         objekti.pitoajalla = True
         objekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
+        logging.info("Valot sytytetty %s aamulla ennen auringonnousua klo %s" % (objekti.ohjausaihe,
+                                                                                 objekti.valot_ohjattu_paalle))
         print("Valot sytytetty %s aamulla ennen auringonnousua klo %s" % (objekti.ohjausaihe,
                                                                           objekti.valot_ohjattu_paalle))
 
@@ -292,6 +337,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(0)
         objekti.pitoajalla = False
         objekti.valot_ohjattu_pois = datetime.datetime.now().astimezone(aikavyohyke)
+        logging.info("Aurinko noussut %s. Valot %s sammutettu." % (aika_nyt, objekti.ohjausaihe))
         print("Aurinko noussut %s. Valot %s sammutettu." % (aika_nyt, objekti.ohjausaihe))
 
 
@@ -300,11 +346,13 @@ def liiketunnistus(liikeobjekti, valoobjekti):
     try:
         liikeobjekti
     except NameError:
+        logging.error("%s objektia ei löydy!" % liikeobjekti)
         raise Exception("Liikeobjektin nimeä ei löydy!")
     else:
         try:
             valoobjekti
         except NameError:
+            logging.error("%s objektia ei löydy!" % valoobjekti)
             raise Exception("Valo-objektin nimeä ei löydy!")
 
     liikeobjekti.loppumisaika_delta = (datetime.datetime.now().astimezone(aikavyohyke)
@@ -315,13 +363,17 @@ def liiketunnistus(liikeobjekti, valoobjekti):
         valoobjekti.valojen_ohjaus(1)
         valoobjekti.liikeyllapitoajalla = True
         valoobjekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
+        logging.info("%s: valot sytytetty liiketunnistunnistuksen %s vuoksi klo %s"
+                     % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, valoobjekti.valot_ohjattu_paalle))
         print("%s: valot sytytetty liiketunnistunnistuksen %s vuoksi klo %s"
               % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, valoobjekti.valot_ohjattu_paalle))
 
     if (aurinko_laskenut is True) and (valoobjekti.valot_paalla is True) and (liikeobjekti.liiketta_havaittu is False) \
             and (liikeobjekti.loppumisaika_delta > liikeobjekti.paallapitoaika) and (valoobjekti.pitoajalla is False):
         valoobjekti.valojen_ohjaus(0)
-        print("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s \n"
+        logging.info("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s"
+                     % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, liikeobjekti.loppumisaika_delta))
+        print("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s"
               % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, liikeobjekti.loppumisaika_delta))
         valoobjekti.liikeyllapitoajalla = False
         valoobjekti.valot_ohjattu_pois = datetime.datetime.now().astimezone(aikavyohyke)
@@ -333,7 +385,6 @@ def ohjausluuppi():
     mqttvalot.on_connect = yhdista  # mita tehdaan kun yhdistetaan brokeriin
     mqttvalot.on_disconnect = pura_yhteys
     mqttvalot.on_message = viestiliike  # maarita mita tehdaan kun viesti saapuu
-
 
     """ Valojenohjausobjektit """
     # OUT: ohjausaihe, paalle_aika, pois_aika, ennakko_aika
@@ -355,17 +406,21 @@ def ohjausluuppi():
     mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
     mqttvalot.loop_start()
 
-
     """ Suoritetaan looppia kunnes toiminta katkaistaan"""
 
     while True:
-        """ Tarkkaillaan tunnistaako jokin objekti liikettä """
-        for z in range(len(ohjausobjektit)):
-            liiketunnistus(ohjausobjektit[z][0], ohjausobjektit[z][1])
-            valojen_sytytys_sammutus(ohjausobjektit[z][1])
+
+        try:
+            """ Tarkkaillaan tunnistaako jokin objekti liikettä ja/tai tuleeko valot sytyttää tai sammuttaa """
+            for z in range(len(ohjausobjektit)):
+                liiketunnistus(ohjausobjektit[z][0], ohjausobjektit[z][1])
+                valojen_sytytys_sammutus(ohjausobjektit[z][1])
+        except KeyboardInterrupt:
+            raise
 
         time.sleep(0.1)  # suoritetaan 0.1s valein
         # time.sleep(0.5)  # testiajoitus
+
 
 if __name__ == "__main__":
     ohjausluuppi()
