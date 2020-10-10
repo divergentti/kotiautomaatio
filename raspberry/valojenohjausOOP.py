@@ -10,7 +10,7 @@ Ulkotiloissa valoja on turha sytyttää, jos valoisuus riittää muutenkin. Tiet
 valoantureilla, mutta lisätieto auringon nousu- ja laskuajoista voi olla myös tarpeen.
 
 Tämä scripti laskee auringon nousu- ja laskuajat ja lähettää mqtt-komennon valojen
-päälle kytkemiseen tai sammuttamiseen. Komennoissa ei ole implementoitu QoS-asetusta. Ne ovat oletuksena 0.
+päälle kytkemiseen tai sammuttamiseen.
 
 
 Lisäksi tämä scripti tarkkailee tuleeko liikesensoreilta tietoa liikkeestä ja laittaa valot päälle mikäli
@@ -30,6 +30,10 @@ Laskennassa hyödynnetään suntime-scriptiä, minkä voit asentaa komennolla:
 pip3 install suntime
 
 7.10.2020 Jari Hiltunen
+
+Muutokset:
+10.10.2020: Muutettu QoS2 mqtt-paketeille. Korjattu virhetiedoston ja infotiedoston käsittely.
+
 """
 
 import paho.mqtt.client as mqtt  # mqtt kirjasto
@@ -45,12 +49,6 @@ from parametrit import LATITUDI, LONGITUDI, MQTTSERVERIPORTTI, MQTTSERVERI, MQTT
     LIIKE_PAALLAPITO_AIKA_AUTOKATOS_1, VARASTO_POHJOINEN_RELE1_MQTTAIHE_1, VALOT_POIS_KLO_ETELA_1, \
     VALO_ENNAKKO_AIKA_ETELA_1, LIIKE_PAALLAPITO_AIKA_ETELA_1, LIIKETUNNISTIN_AUTOKATOS
 
-logging.basicConfig(level=logging.ERROR,
-                    filename='valoohjausOOPvirheet.log')
-logging.basicConfig(level=logging.INFO,
-                    filename='valoohjausOOPinfo.log')
-logging.error('Virheet kirjataan lokiin valoohjausOOPvirheet.log')
-logging.info('Statukset kirjataan lokiin valoohjausOOPinfo.log')
 
 ''' Globaalit päivämäärämuuttujat'''
 aikavyohyke = tz.tzlocal()
@@ -73,13 +71,38 @@ aurinko = Sun(LATITUDI, LONGITUDI)
 mqttvalot = mqtt.Client("valojenohjaus-ohjaus-OOP")
 mqttvalot.username_pw_set(MQTTKAYTTAJA, MQTTSALARI)  # mqtt useri ja salari
 
+''' Virheloggeri '''
+
+
+def virhe_loggeri(login_formaatti='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                  login_nimi='', logitiedosto_infoille='/home/pi/python/VohjausInfo.log',
+                  logitiedosto_virheille='/home/pi/python/VohjausVirheet.err'):
+    logi = logging.getLogger(login_nimi)
+    login_formaatti = logging.Formatter(login_formaatti)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(login_formaatti)
+    logi.addHandler(stream_handler)
+    file_handler_info = logging.FileHandler(logitiedosto_infoille, mode='w')
+    file_handler_info.setFormatter(login_formaatti)
+    file_handler_info.setLevel(logging.INFO)
+    logi.addHandler(file_handler_info)
+    file_handler_error = logging.FileHandler(logitiedosto_virheille, mode='w')
+    file_handler_error.setFormatter(login_formaatti)
+    file_handler_error.setLevel(logging.ERROR)
+    logi.addHandler(file_handler_error)
+    logi.setLevel(logging.INFO)
+    return logi
+
+
+loggeri = virhe_loggeri()
+
 
 def yhdista(client, userdata, flags, rc):
     if client.is_connected() is False:
         try:
-            client.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
+            client.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60, bind_address="")  # yhdista mqtt-brokeriin
         except OSError as e:
-            logging.error("MQTT-palvelinongelma %s", e)
+            loggeri.error("MQTT-palvelinongelma %s", e)
             raise Exception("MQTT-palvelinongelma! %s" % e)
         print("Yhdistetty statuksella: " + str(rc))
     """ Tilataan aiheet mqtt-palvelimelle. [0] ohjausobjekteissa tarkoittaa liikeanturia """
@@ -93,7 +116,7 @@ def pura_yhteys():
     try:
         mqttvalot.disconnect()
     except OSError as e:
-        logging.error("MQTT-palvelinongelma! %s", e)
+        loggeri.error("MQTT-palvelinongelma! %s", e)
         raise Exception("MQTT-palvelinongelma! %s" % e)
 
 
@@ -182,18 +205,18 @@ class Valojenohjaus:
                 raise Exception("Yhteys palvelimeen %s ei toimi!" % MQTTSERVERI)
         else:
             if (status < 0) or (status > 1):
-                logging.error("%s Valojen ohjausarvon tulee olla 0 tai 1!" % self.__class__.__name__)
+                loggeri.error("%s Valojen ohjausarvon tulee olla 0 tai 1!" % self.__class__.__name__)
                 raise Exception("Valojen ohjausarvon tulee olla 0 tai 1!")
             elif status == 0:
                 self.valot_paalla = False
             elif status == 1:
                 self.valot_paalla = True
             try:
-                mqttvalot.publish(self.ohjausaihe, payload=status, retain=True)
+                mqttvalot.publish(self.ohjausaihe, payload=status, qos=1, retain=True)  # Huom! QoS = 1
             except AttributeError:
                 pass
             except OSError as e:
-                logging.error("%s Virhe %s!" % (self.__class__.__name__, e))
+                loggeri.error("%s Virhe %s!" % (self.__class__.__name__, e))
                 raise Exception("Virhetila %s", e)
 
 
@@ -255,7 +278,7 @@ def valojen_sytytys_sammutus(objekti):
     try:
         objekti
     except NameError:
-        logging.error("%s Valojen ohjausobjektia ei löydy!" % objekti)
+        loggeri.error("%s Valojen ohjausobjektia ei löydy!" % objekti)
         raise Exception("Valojen ohjausobjektia ei löydy!")
 
     ''' Huom! Palauttaa UTC-ajan ilman astitimezonea'''
@@ -307,7 +330,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(1)
         objekti.pitoajalla = True
         objekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
-        logging.info("Aurinko laskenut.%s:Valot sytytetty klo: %s" % (objekti.ohjausaihe, objekti.valot_ohjattu_paalle))
+        loggeri.info("Aurinko laskenut.%s:Valot sytytetty klo: %s" % (objekti.ohjausaihe, objekti.valot_ohjattu_paalle))
         print("Aurinko laskenut. %s: Valot sytytetty klo: %s" % (objekti.ohjausaihe, objekti.valot_ohjattu_paalle))
 
     ''' Aurinko laskenut ja valot päällä, mutta sammutusaika saavutettu '''
@@ -316,7 +339,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(0)
         objekti.pitoajalla = False
         objekti.valot_ohjattu_pois = datetime.datetime.now().astimezone(aikavyohyke)
-        logging.info("Valot sammutettu. Valot olivat %s päällä %s" % (objekti.ohjausaihe, (objekti.valot_ohjattu_pois
+        loggeri.info("Valot sammutettu. Valot olivat %s päällä %s" % (objekti.ohjausaihe, (objekti.valot_ohjattu_pois
                                                                       - objekti.valot_ohjattu_paalle)))
         print("Valot sammutettu. Valot olivat %s päällä %s" % (objekti.ohjausaihe, (objekti.valot_ohjattu_pois
                                                                - objekti.valot_ohjattu_paalle)))
@@ -327,7 +350,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(1)
         objekti.pitoajalla = True
         objekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
-        logging.info("Valot sytytetty %s aamulla ennen auringonnousua klo %s" % (objekti.ohjausaihe,
+        loggeri.info("Valot sytytetty %s aamulla ennen auringonnousua klo %s" % (objekti.ohjausaihe,
                                                                                  objekti.valot_ohjattu_paalle))
         print("Valot sytytetty %s aamulla ennen auringonnousua klo %s" % (objekti.ohjausaihe,
                                                                           objekti.valot_ohjattu_paalle))
@@ -337,7 +360,7 @@ def valojen_sytytys_sammutus(objekti):
         objekti.valojen_ohjaus(0)
         objekti.pitoajalla = False
         objekti.valot_ohjattu_pois = datetime.datetime.now().astimezone(aikavyohyke)
-        logging.info("Aurinko noussut %s. Valot %s sammutettu." % (aika_nyt, objekti.ohjausaihe))
+        loggeri.info("Aurinko noussut %s. Valot %s sammutettu." % (aika_nyt, objekti.ohjausaihe))
         print("Aurinko noussut %s. Valot %s sammutettu." % (aika_nyt, objekti.ohjausaihe))
 
 
@@ -346,13 +369,13 @@ def liiketunnistus(liikeobjekti, valoobjekti):
     try:
         liikeobjekti
     except NameError:
-        logging.error("%s objektia ei löydy!" % liikeobjekti)
+        loggeri.error("%s objektia ei löydy!" % liikeobjekti)
         raise Exception("Liikeobjektin nimeä ei löydy!")
     else:
         try:
             valoobjekti
         except NameError:
-            logging.error("%s objektia ei löydy!" % valoobjekti)
+            loggeri.error("%s objektia ei löydy!" % valoobjekti)
             raise Exception("Valo-objektin nimeä ei löydy!")
 
     liikeobjekti.loppumisaika_delta = (datetime.datetime.now().astimezone(aikavyohyke)
@@ -363,7 +386,7 @@ def liiketunnistus(liikeobjekti, valoobjekti):
         valoobjekti.valojen_ohjaus(1)
         valoobjekti.liikeyllapitoajalla = True
         valoobjekti.valot_ohjattu_paalle = datetime.datetime.now().astimezone(aikavyohyke)
-        logging.info("%s: valot sytytetty liiketunnistunnistuksen %s vuoksi klo %s"
+        loggeri.info("%s: valot sytytetty liiketunnistunnistuksen %s vuoksi klo %s"
                      % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, valoobjekti.valot_ohjattu_paalle))
         print("%s: valot sytytetty liiketunnistunnistuksen %s vuoksi klo %s"
               % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, valoobjekti.valot_ohjattu_paalle))
@@ -371,7 +394,7 @@ def liiketunnistus(liikeobjekti, valoobjekti):
     if (aurinko_laskenut is True) and (valoobjekti.valot_paalla is True) and (liikeobjekti.liiketta_havaittu is False) \
             and (liikeobjekti.loppumisaika_delta > liikeobjekti.paallapitoaika) and (valoobjekti.pitoajalla is False):
         valoobjekti.valojen_ohjaus(0)
-        logging.info("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s"
+        loggeri.info("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s"
                      % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, liikeobjekti.loppumisaika_delta))
         print("%s: Valot sammutettu liikkeen %s loppumisen vuoksi. Liikedelta: %s"
               % (valoobjekti.ohjausaihe, liikeobjekti.liikeaihe, liikeobjekti.loppumisaika_delta))
@@ -381,6 +404,8 @@ def liiketunnistus(liikeobjekti, valoobjekti):
 
 def ohjausluuppi():
     global ohjausobjektit
+    loggeri.info('Sovellus käynnistetty %s', datetime.datetime.now().astimezone(aikavyohyke))
+
     """ Yhteys on kaikille objekteille sama """
     mqttvalot.on_connect = yhdista  # mita tehdaan kun yhdistetaan brokeriin
     mqttvalot.on_disconnect = pura_yhteys
@@ -403,7 +428,7 @@ def ohjausluuppi():
     ohjausobjektit = [[autokatos_pir, autokatos], [etelainen_pir, etelainen], [pohjoinen_pir, pohjoinen]]
 
     """ Käynnistetään mqtt-pollaus"""
-    mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60)  # yhdista mqtt-brokeriin
+    mqttvalot.connect_async(MQTTSERVERI, MQTTSERVERIPORTTI, 60, bind_address="")  # yhdista mqtt-brokeriin
     mqttvalot.loop_start()
 
     """ Suoritetaan looppia kunnes toiminta katkaistaan"""
