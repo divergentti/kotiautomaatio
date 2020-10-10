@@ -41,6 +41,9 @@ import time
 import datetime
 from dateutil import tz
 import logging
+import signal
+import sys
+import os
 from suntime import Sun
 from parametrit import LATITUDI, LONGITUDI, MQTTSERVERIPORTTI, MQTTSERVERI, MQTTKAYTTAJA, MQTTSALARI, \
     VARASTO_POHJOINEN_RELE2_MQTTAIHE_2, VALOT_POIS_KLO_POHJOINEN_1, VALO_ENNAKKO_AIKA_POHJOINEN_1, \
@@ -95,6 +98,13 @@ def virhe_loggeri(login_formaatti='%(asctime)s %(name)-12s %(levelname)-8s %(mes
 
 
 loggeri = virhe_loggeri()
+
+
+def terminoi_prosessi(signaali, frame):
+    """ Terminointi """
+    print('(SIGTERM) terminoidaan prosessi %s' % os.getpid())
+    loggeri.info("Prosessi %s terminoitu klo %s." % (os.getpid(), aika_nyt))
+    sys.exit()
 
 
 def yhdista(client, userdata, flags, rc):
@@ -404,8 +414,8 @@ def liiketunnistus(liikeobjekti, valoobjekti):
 
 def ohjausluuppi():
     global ohjausobjektit
-    loggeri.info('Sovellus käynnistetty %s', datetime.datetime.now().astimezone(aikavyohyke))
-
+    loggeri.info('PID %s. Sovellus käynnistetty %s' % (os.getpid(), datetime.datetime.now().astimezone(aikavyohyke)))
+                 
     """ Yhteys on kaikille objekteille sama """
     mqttvalot.on_connect = yhdista  # mita tehdaan kun yhdistetaan brokeriin
     mqttvalot.on_disconnect = pura_yhteys
@@ -448,4 +458,5 @@ def ohjausluuppi():
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, terminoi_prosessi)
     ohjausluuppi()
