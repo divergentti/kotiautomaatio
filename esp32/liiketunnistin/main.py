@@ -30,6 +30,7 @@
     22.9.2020: Paranneltu WiFi-objektin hallintaa ja mqtt muutettu retain-tyyppiseksi.
     24.9.2020: Lisätty virheiden kirjaus tiedostoon ja lähetys mqtt-kanavaan. Poistettu ledivilkutus.
                Virheiden kirjauksessa erottimena toimii ";" eli puolipilkulla erotetut arvot.
+    11.10.2020: Lisätty mqtt-pollaus siten, että jos mqtt-viestejä ei kuulu puoleen tuntiin, laite bootataan.
 """
 import time
 import utime
@@ -50,6 +51,9 @@ client = MQTTClient(CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, MQTT_SA
 
 # Liikesensorin pinni
 pir = Pin(PIR_PINNI, Pin.IN)
+
+# MQTT-uptimelaskuri
+mqtt_viimeksi_nahty = utime.ticks_ms()
 
 
 def raportoi_virhe(virhe):
@@ -95,12 +99,12 @@ def laheta_pir(status):
     aika = ratkaise_aika()
     if wificlient_if.isconnected():
         try:
-            client.publish(AIHE_LIIKETUNNISTIN, str(status), retain=True)  # 1 = liiketta, 0 = liike loppunut
+            client.publish(AIHE_LIIKETUNNISTIN, str(status), qos=1, retain=True)  # 1 = liiketta, 0 = liike loppunut
             gc.collect()  # puhdistetaan roskat
             return True
         except OSError as e:
             print("% s:  Ei voida yhdistaa mqtt-palvelimeen! %s " % (aika, e))
-            raportoi_virhe(e)
+
             restart_and_reconnect()
     else:
         print("%s: Yhteys on poikki! Signaalitaso %s. Bootataan. " % (aika, wificlient_if.status('rssi')))
@@ -116,6 +120,12 @@ def restart_and_reconnect():
     time.sleep(1)
     machine.reset()
     # resetoidaan
+
+
+def tarkista_uptime(aihe, viesti):
+    global mqtt_viimeksi_nahty
+    print("Aihe %s ja viesti %s vastaanotettu, nollataan laskuri." % (aihe, viesti))
+    mqtt_viimeksi_nahty = utime.ticks_ms()
 
 
 def tarkista_virhetiedosto():
@@ -142,6 +152,10 @@ def seuraa_liiketta():
     time.sleep(3)
     mqtt_palvelin_yhdista()
     tarkista_virhetiedosto()
+    # statuskyselya varten
+    client.set_callback(tarkista_uptime)
+    # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuri
+    client.subscribe("$SYS/broker/bytes/#")
     on_aika = utime.time()
     ilmoitettu_on = False
     ilmoitettu_off = False
@@ -172,6 +186,17 @@ def seuraa_liiketta():
 
         except KeyboardInterrupt:
             raise
+
+        try:
+            client.check_msg()
+        except KeyboardInterrupt:
+            raise
+
+        if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
+            # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
+            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin." % (utime.ticks_diff(utime.ticks_ms()
+                                                                            ,mqtt_viimeksi_nahty)) > (60 * 30 * 100))
+            restart_and_reconnect()
 
         # lasketaan prosessorin kuormaa
         time.sleep(0.1)
