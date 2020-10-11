@@ -14,6 +14,8 @@
     MQTT hyödyntää valmista kirjastoa umqttsimple.py joka on ladattavissa:
     https://github.com/micropython/micropython-lib/tree/master/umqtt.simple
 
+    Muutokset:
+    11.10.2020: Lisätty mqtt-pollaus siten että jos mqtt-viestejä ei näy puoleen tuntiin, bootataan.
 """
 import time
 import utime
@@ -40,6 +42,9 @@ rele1_1 = Pin(RELE1_PINNI1, Pin.OUT)
 rele1_2 = Pin(RELE1_PINNI2, Pin.OUT)
 rele2_1 = Pin(RELE2_PINNI1, Pin.OUT)
 rele2_2 = Pin(RELE2_PINNI2, Pin.OUT)
+
+# MQTT-uptimelaskuri
+mqtt_viimeksi_nahty = utime.ticks_ms()
 
 
 def raportoi_virhe(virhe):
@@ -74,6 +79,8 @@ def mqtt_palvelin_yhdista():
             releclient.subscribe(AIHE_RELE1_2)
             releclient.subscribe(AIHE_RELE2_1)
             releclient.subscribe(AIHE_RELE2_2)
+            # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuria
+            releclient.subscribe("$SYS/broker/bytes/#")
             print("Yhdistetty %s palvelimeen %s" % (releclient.client_id, releclient.server))
             return True
         except OSError as e:
@@ -87,8 +94,11 @@ def mqtt_palvelin_yhdista():
 
 
 def rele_tila(rele_ohjaus, msg):
+    global mqtt_viimeksi_nahty
     aika = ratkaise_aika()
-    print((rele_ohjaus, msg))
+    # print((rele_ohjaus, msg))
+    # Nollanaa mqtt-uptime-laskuri
+    mqtt_viimeksi_nahty = utime.ticks_ms()
     # Tarkistetaan mille aiheelle viesti tuli
     # Rele 1 pinni 1
     if rele_ohjaus == AIHE_RELE1_1 and msg == b'0':
@@ -142,7 +152,7 @@ def tarkista_virhetiedosto():
         try:
             releclient.publish(AIHE_VIRHEET, str(rivit), retain=False)
             rivit = tiedosto.readline()
-        except OSError as e:
+        except OSError:
             #  Ei onnistu, joten bootataan
             restart_and_reconnect()
     #  Tiedosto luettu ja mqtt:lla ilmoitettu, suljetaan ja poistetaan se
@@ -161,6 +171,12 @@ def rele_looppi():
 
         except KeyboardInterrupt:
             raise
+
+        if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
+            # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
+            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin." % (utime.ticks_diff(utime.ticks_ms(),
+                                                                            mqtt_viimeksi_nahty)) > (60 * 30 * 100))
+            restart_and_reconnect()
 
         # lasketaan prosessorin kuormaa
         time.sleep(0.1)
