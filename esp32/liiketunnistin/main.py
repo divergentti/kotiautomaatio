@@ -194,8 +194,7 @@ def seuraa_liiketta():
 
         if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
             # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
-            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin." % (utime.ticks_diff(utime.ticks_ms()
-                                                                            ,mqtt_viimeksi_nahty)) > (60 * 30 * 100))
+            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s msekuntiin." % (utime.ticks_diff(utime.ticks_ms() ,mqtt_viimeksi_nahty)))
             restart_and_reconnect()
 
         # lasketaan prosessorin kuormaa
