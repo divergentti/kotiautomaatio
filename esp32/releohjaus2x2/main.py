@@ -16,6 +16,7 @@
 
     Muutokset:
     11.10.2020: Lisätty mqtt-pollaus siten että jos mqtt-viestejä ei näy puoleen tuntiin, bootataan.
+    14.10.2020: Listätty QoS=1 ja lisäksi poistettu disconnect rebootista, joka ei toimi jos on jo disconnect
 """
 import time
 import utime
@@ -32,7 +33,6 @@ from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
 # tuodaan bootis wifi-ap:n objekti
 from boot import wificlient_if
 
-gc.enable()  # aktivoidaan automaattinen roskankeruu
 
 # Luodaan mqtt-clientin objekti
 releclient = MQTTClient(CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, MQTT_SALASANA)
@@ -75,10 +75,10 @@ def mqtt_palvelin_yhdista():
         try:
             releclient.connect()
             releclient.set_callback(rele_tila)
-            releclient.subscribe(AIHE_RELE1_1)
-            releclient.subscribe(AIHE_RELE1_2)
-            releclient.subscribe(AIHE_RELE2_1)
-            releclient.subscribe(AIHE_RELE2_2)
+            releclient.subscribe(AIHE_RELE1_1, 1)
+            releclient.subscribe(AIHE_RELE1_2, 1)
+            releclient.subscribe(AIHE_RELE2_1, 1)
+            releclient.subscribe(AIHE_RELE2_2, 1)
             # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuria
             releclient.subscribe("$SYS/broker/bytes/#")
             print("Yhdistetty %s palvelimeen %s" % (releclient.client_id, releclient.server))
@@ -132,8 +132,6 @@ def rele_tila(rele_ohjaus, msg):
 
 def restart_and_reconnect():
     aika = ratkaise_aika()
-    wificlient_if.disconnect()
-    wificlient_if.active(False)
     print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
     time.sleep(1)
     machine.reset()
@@ -174,7 +172,8 @@ def rele_looppi():
 
         if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
             # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
-            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin." % (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)))
+            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin." % (utime.ticks_diff(utime.ticks_ms(),
+                                                                            mqtt_viimeksi_nahty)))
             restart_and_reconnect()
 
         # lasketaan prosessorin kuormaa
