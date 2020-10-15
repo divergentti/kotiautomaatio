@@ -61,7 +61,10 @@ def kaynnista_webrepl():
 
 
 if (wificlient_if.isconnected() is True) and (wificlient_if.ifconfig()[0] != '0.0.0.0'):
-    pass
+    aseta_aika()
+    kaynnista_webrepl()
+    print('Laitteen IP-osoite:', wificlient_if.ifconfig()[0])
+    print("WiFi-verkon signaalitaso %s" % (wificlient_if.status('rssi')))
 else:
     wificlient_if.active(True)
     yritetty_ssid1 = False
