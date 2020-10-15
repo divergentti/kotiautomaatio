@@ -10,6 +10,7 @@ voit käsitellä laitteen tiedostoja joko WebREPL tai konsoliportin kautta.
 
 Muutokset:
 11.10.2020: boot.py ajetaan jostain syystä kahteen kertaan ja siksi käynnistys on hassu. Korjattu käynnistystä.
+15.10.2020: muokattu edelleen logiikkaa, jolla tunnistetaan ollaanko yhteydessä
 
 """
 
@@ -19,13 +20,13 @@ import machine
 import network
 import time
 import ntptime
-import esp
 import webrepl
 from time import sleep
 from parametrit import SSID1, SSID2, SALASANA1, SALASANA2, WEBREPL_SALASANA, NTPPALVELIN, DHCP_NIMI
 
 wificlient_if = network.WLAN(network.STA_IF)
-wificlient_if.active(False)
+
+# machine.freq(240000000)
 
 
 def ei_voida_yhdistaa():
@@ -43,7 +44,6 @@ def aseta_aika():
         print("NTP-palvelimelta %s ei saatu aikaa! Virhe %s" % (NTPPALVELIN, e))
         ei_voida_yhdistaa()
     print("Aika: %s " % str(utime.localtime(utime.time())))
-    return True
 
 
 def kaynnista_webrepl():
@@ -58,10 +58,11 @@ def kaynnista_webrepl():
         except OSError as e:
             print("WebREPL ei kaynnisty. Virhe %s" % e)
             raise Exception("WebREPL ei ole asenettu! Suorita import webrepl_setup")
-    return True
 
 
-if wificlient_if.isconnected() is False:
+if (wificlient_if.isconnected() is True) and (wificlient_if.ifconfig()[0] != '0.0.0.0'):
+    pass
+else:
     wificlient_if.active(True)
     yritetty_ssid1 = False
     yritetty_ssid2 = False
@@ -100,7 +101,6 @@ if wificlient_if.isconnected() is False:
         print("Ei saada IP-osoitetta! Bootataan!")
         ei_voida_yhdistaa()
 
-if (wificlient_if.isconnected() is True) and (wificlient_if.ifconfig()[0] != '0.0.0.0'):
     aseta_aika()
     kaynnista_webrepl()
     print('Laitteen IP-osoite:', wificlient_if.ifconfig()[0])
