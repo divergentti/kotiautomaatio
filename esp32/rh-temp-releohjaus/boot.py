@@ -22,7 +22,14 @@ import time
 import ntptime
 import webrepl
 from time import sleep
-from parametrit import SSID1, SSID2, SALASANA1, SALASANA2, WEBREPL_SALASANA, NTPPALVELIN, DHCP_NIMI
+try:
+    from parametrit import SSID1, SSID2, SALASANA1, SALASANA2, WEBREPL_SALASANA, NTPPALVELIN, DHCP_NIMI
+except ImportError:
+    if (SSID1 is not None) and (SALASANA1 is not None):
+        pass
+    else:
+        print("Vaaditaan minim SSID1 ja SALASANA!")
+        raise
 
 wificlient_if = network.WLAN(network.STA_IF)
 
@@ -77,24 +84,22 @@ else:
     if DHCP_NIMI is not None:
         wificlient_if.config(dhcp_hostname=DHCP_NIMI)
 
-    if (yritetty_ssid1 is False) and (wificlient_if.isconnected() is False):
+    if yritetty_ssid1 is False:
         try:
             wificlient_if.connect(SSID1, SALASANA1)
+            time.sleep(5)
             yritetty_ssid1 = True
         except OSError:
             ei_voida_yhdistaa()
 
-    time.sleep(3)
-
-    if (SSID2 is not None) and (wificlient_if.isconnected() is False) and (yritetty_ssid1 is True):
+    if (SSID2 is not None) and (yritetty_ssid1 is True) and (wificlient_if.ifconfig()[0] == '0.0.0.0'):
         print("Kokeillaan verkkoa %s" % SSID2)
         try:
             wificlient_if.connect(SSID2, SALASANA2)
+            time.sleep(5)
             yritetty_ssid2 = True
         except OSError:
             ei_voida_yhdistaa()
-
-    time.sleep(3)
 
     if (yritetty_ssid1 is True) and (yritetty_ssid2 is True) and (wificlient_if.isconnected() is False):
         print("Ei voida yhdistaa! Bootataan")
