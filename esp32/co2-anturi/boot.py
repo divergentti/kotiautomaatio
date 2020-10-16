@@ -1,4 +1,4 @@
-""" Boottiversio 1.1
+""" Boottiversio 2.0
 
 Parametrit tuodaan parametrit.py-tidesosta. Vähintään tarvitaan SSID1 ja SALASANA1 joilla kerrotaan
 mihin Wifi-AP halutaan yhdistää. Mikäli WebREPL:ä halutaan käyttää, tulee ensimmäisellä kerralla
@@ -6,14 +6,13 @@ käynnistää komento import webrepl_setup, joka luo tiedoston webrepl_cfg.py la
 Komennoilla import os, os.rename('vanha_tiedosto', 'uusi_tiedosto') tai os.remove('tiedostonimi')
 voit käsitellä laitteen tiedostoja joko WebREPL tai konsoliportin kautta.
 
-3.10.2020 Jari Hiltunen
+Tässä boottiversiossa skannataan aluksi kaikki WiFi AP:t ja niiden voimakkuus dBm. Tästä listasta valitaan
+se WiFi AP jolla on korkein rssi ja yritetään autentikoida AP:hen. Mikäli autentikointi ei onnistu, kokeillaan
+seuraavaa listassa olevaa. Lista on tässä scriptissä SSID1 ja SSID2 ja niille vastaava salasanat SALASANA1 ja 2.
 
-Muutokset:
-11.10.2020: boot.py ajetaan jostain syystä kahteen kertaan ja siksi käynnistys on hassu. Korjattu käynnistystä.
-15.10.2020: muokattu edelleen logiikkaa, jolla tunnistetaan ollaanko yhteydessä
+16.10.2020 Jari Hiltunen
 
 """
-
 
 import utime
 import machine
@@ -22,18 +21,23 @@ import time
 import ntptime
 import webrepl
 from time import sleep
+
+#  0 = power on, 6 = hard reset, 1 = WDT reset, 5 = DEEP_SLEEP reset, 4 soft reset
+print("Edellisen bootin syy %s" % machine.reset_cause())
+
 try:
     from parametrit import SSID1, SSID2, SALASANA1, SALASANA2, WEBREPL_SALASANA, NTPPALVELIN, DHCP_NIMI
-except ImportError:
+except ImportError as e:
+    print("Tuontivirhe %s", e)
     if (SSID1 is not None) and (SALASANA1 is not None):
-        pass
+        SSID2 = None
+        SALASANA2 = None
+        WEBREPL_SALASANA = None
+        NTPPALVELIN = None
+        DHCP_NIMI = None
     else:
         print("Vaaditaan minim SSID1 ja SALASANA!")
         raise
-
-wificlient_if = network.WLAN(network.STA_IF)
-
-# machine.freq(240000000)
 
 
 def ei_voida_yhdistaa():
@@ -43,8 +47,6 @@ def ei_voida_yhdistaa():
 
 
 def aseta_aika():
-    if NTPPALVELIN is not None:
-        ntptime.host = NTPPALVELIN
     try:
         ntptime.settime()
     except OSError as e:
@@ -67,49 +69,75 @@ def kaynnista_webrepl():
             raise Exception("WebREPL ei ole asenettu! Suorita import webrepl_setup")
 
 
-if (wificlient_if.isconnected() is True) and (wificlient_if.ifconfig()[0] != '0.0.0.0'):
+wificlient_if = network.WLAN(network.STA_IF)
+
+#  Ollaan jo yhteydessä 1, 2 tai 4 resetin vuoksi
+if wificlient_if.config('essid') != '':
+    print("Yhteydessä verkkoon %s" % network.WLAN(network.STA_IF).config('essid'))
+    print('Laitteen IP-osoite:', network.WLAN(network.STA_IF).ifconfig()[0])
+    print("WiFi-verkon signaalitaso %s" % (network.WLAN(network.STA_IF).status('rssi')))
     aseta_aika()
     kaynnista_webrepl()
-    print('Laitteen IP-osoite:', wificlient_if.ifconfig()[0])
-    print("WiFi-verkon signaalitaso %s" % (wificlient_if.status('rssi')))
 else:
+    etsi_lista = []
+    ssid_lista = []
+    kaytettava_salasana = ""
+    kaytettava_ssid = ""
+    wificlient_if = network.WLAN(network.STA_IF)
+    wificlient_if.active(False)
+    time.sleep(1)
     wificlient_if.active(True)
-    yritetty_ssid1 = False
-    yritetty_ssid2 = False
-    if SSID1 is None:
-        print("Aseta SSID1 nimi ja salasana paramterit.py-tiedostossa!")
-        raise Exception("Aseta SSID1 ja salasana paramterit.py-tiedostossa!")
-    print("Kokeillaan verkkoa %s" % SSID1)
-
+    time.sleep(2)
     if DHCP_NIMI is not None:
         wificlient_if.config(dhcp_hostname=DHCP_NIMI)
+    if NTPPALVELIN is not None:
+        ntptime.host = NTPPALVELIN
+    try:
+        ssid_lista = wificlient_if.scan()
+        time.sleep(3)
+    except KeyboardInterrupt:
+        raise
+    except ssid_lista == []:
+        print("WiFi-verkkoja ei löydy!")
+        ei_voida_yhdistaa()
+    except OSError:
+        ei_voida_yhdistaa()
+        #  Katsotaan löytyvätkö SSID1 ja SSID2 listalta
+    try:
+        etsi_lista = [item for item in ssid_lista if item[0].decode() == SSID1 or item[0].decode() == SSID2]
+    except ValueError:
+        # SSDI ei löydy
+        pass
+    # Mikäli listan pituus on 2, silloin löytyi molemmat ja valitaan voimakkain, muuten valitaan vain se joka löytyi
+    if len(etsi_lista) == 2:
+        #  kolmas lopusta on signaalinvoimakkuus rssi
+        if etsi_lista[0][-3] > etsi_lista[1][-3]:
+            kaytettava_ssid = etsi_lista[0][0].decode()
+            kaytettava_salasana = SALASANA1
+        else:
+            kaytettava_ssid = etsi_lista[1][0].decode()
+            kaytettava_salasana = SALASANA2
+    else:
+        # vain yksi listalla
+        kaytettava_ssid = etsi_lista[0][0].decode()
+        kaytettava_salasana = SALASANA1
+    # machine.freq(240000000)
 
-    if yritetty_ssid1 is False:
-        try:
-            wificlient_if.connect(SSID1, SALASANA1)
-            time.sleep(5)
-            yritetty_ssid1 = True
-        except OSError:
+    print("Yhdistetään verkkoon %s" % kaytettava_ssid)
+    try:
+        wificlient_if.connect(kaytettava_ssid, kaytettava_salasana)
+        time.sleep(5)
+    except wificlient_if.ifconfig()[0] == '0.0.0.0':
+        print("Ei saada ip-osoitetta!")
+        ei_voida_yhdistaa()
+    except OSError:
+        ei_voida_yhdistaa()
+    finally:
+        if wificlient_if.ifconfig()[0] != '0.0.0.0':
+            aseta_aika()
+            kaynnista_webrepl()
+            print('Laitteen IP-osoite:', wificlient_if.ifconfig()[0])
+            print("WiFi-verkon signaalitaso %s" % (wificlient_if.status('rssi')))
+        else:
             ei_voida_yhdistaa()
 
-    if (SSID2 is not None) and (yritetty_ssid1 is True) and (wificlient_if.ifconfig()[0] == '0.0.0.0'):
-        print("Kokeillaan verkkoa %s" % SSID2)
-        try:
-            wificlient_if.connect(SSID2, SALASANA2)
-            time.sleep(5)
-            yritetty_ssid2 = True
-        except OSError:
-            ei_voida_yhdistaa()
-
-    if (yritetty_ssid1 is True) and (yritetty_ssid2 is True) and (wificlient_if.isconnected() is False):
-        print("Ei voida yhdistaa! Bootataan")
-        ei_voida_yhdistaa()
-
-    if (yritetty_ssid1 is True) and (yritetty_ssid2 is True) and (wificlient_if.ifconfig()[0] == '0.0.0.0'):
-        print("Ei saada IP-osoitetta! Bootataan!")
-        ei_voida_yhdistaa()
-
-    aseta_aika()
-    kaynnista_webrepl()
-    print('Laitteen IP-osoite:', wificlient_if.ifconfig()[0])
-    print("WiFi-verkon signaalitaso %s" % (wificlient_if.status('rssi')))
