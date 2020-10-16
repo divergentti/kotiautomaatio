@@ -107,7 +107,8 @@ else:
         etsi_lista = [item for item in ssid_lista if item[0].decode() == SSID1 or item[0].decode() == SSID2]
     except ValueError:
         # SSDI ei löydy
-        pass
+        print("Etsittyä WiFi-verkkoja ei löydy!")
+        ei_voida_yhdistaa()
     # Mikäli listan pituus on 2, silloin löytyi molemmat ja valitaan voimakkain, muuten valitaan vain se joka löytyi
     if len(etsi_lista) == 2:
         #  kolmas lopusta on signaalinvoimakkuus rssi
