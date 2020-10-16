@@ -11,7 +11,7 @@
     MQTT hyödyntää valmista kirjastoa mqtt_as.py joka on ladattavissa:
     https://github.com/peterhinch/micropython-mqtt/tree/master/mqtt_as
 
-    14.10.2020: Jari Hiltunen
+    16.10.2020: Jari Hiltunen
 """
 import time
 import utime
@@ -20,17 +20,24 @@ import uasyncio as asyncio
 from machine import Pin
 from mqtt_as import MQTTClient
 import os
+import network
 import gc
 from mqtt_as import config
 # tuodaan parametrit tiedostosta parametrit.py
 from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
     MQTT_SALASANA, AIHE_VIRHEET, RELE1_PINNI1, RELE1_PINNI2, RELE2_PINNI1, RELE2_PINNI2,\
-    AIHE_RELE1_1, AIHE_RELE1_2, AIHE_RELE2_1, AIHE_RELE2_2, SSID1, SALASANA1
+    AIHE_RELE1_1, AIHE_RELE1_2, AIHE_RELE2_1, AIHE_RELE2_2, SSID1, SALASANA1, SSID2, SALASANA2
 
+kaytettava_salasana = None
+
+if network.WLAN(network.STA_IF).config('essid') == SSID1:
+    kaytettava_salasana = SALASANA1
+elif network.WLAN(network.STA_IF).config('essid') == SSID2:
+    kaytettava_salasana = SALASANA2
 
 config['server'] = MQTT_SERVERI
-config['ssid'] = SSID1
-config['wifi_pw'] = SALASANA1
+config['ssid'] = network.WLAN(network.STA_IF).config('essid')
+config['wifi_pw'] = kaytettava_salasana
 
 # Luodaan releobjektitHuom! Releet kytketty NC (Normally Closed) jolloin 0 = on
 rele1_1 = Pin(RELE1_PINNI1, Pin.OUT)
@@ -48,7 +55,7 @@ def raportoi_virhe(virhe):
         tiedosto = open('virheet.txt', 'w')
         # virheviestin rakenne: pvm + aika;uptime;laitenimi;ip;virhe;vapaa muisti
     virheviesti = str(ratkaise_aika()) + ";" + str(utime.ticks_ms()) + ";" \
-        + str(CLIENT_ID) + ";" + str(wificlient_if.ifconfig()) + ";" + str(virhe) +\
+        + str(CLIENT_ID) + ";" + str(network.WLAN(network.STA_IF).ifconfig()) + ";" + str(virhe) +\
         ";" + str(gc.mem_free())
     tiedosto.write(virheviesti)
     tiedosto.close()
@@ -81,7 +88,7 @@ async def main(client):
 
 def rele_tila(rele_ohjaus, msg, retained):
     aika = ratkaise_aika()
-    # print((rele_ohjaus, msg))
+    print((rele_ohjaus, msg))
     # Tarkistetaan mille aiheelle viesti tuli
     # Rele 1 pinni 1
     if rele_ohjaus == AIHE_RELE1_1 and msg == b'0':
@@ -115,8 +122,6 @@ def rele_tila(rele_ohjaus, msg, retained):
 
 def restart_and_reconnect():
     aika = ratkaise_aika()
-    wificlient_if.disconnect()
-    wificlient_if.active(False)
     print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
     time.sleep(1)
     machine.reset()
