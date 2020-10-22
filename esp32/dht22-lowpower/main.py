@@ -101,15 +101,17 @@ toisiopiiri = Pin(TOISIOPIIRI_AKTIVOINTI_PINNI, mode=Pin.OPEN_DRAIN, pull=-1)
 
 def lue_akkujannite():
     arvolista = []
-    #  Luetaan 10 arvoa
-    while len(arvolista) < 10:
+    #  Luetaan 5 arvoa
+    while len(arvolista) < 5:
         try:
             arvolista.append(akkujannite.read())
         except OSError:
-            pass
+            arvolista.append(0)
     #  Lasketaan keskiarvo ja kerrotaan AKKU_VAKIOLLA
-
-    jannite = (sum(arvolista) / len(arvolista)) * AKKU_VAKIO
+    if (sum(arvolista) > 0) and len(arvolista) > 0:
+        jannite = (sum(arvolista) / len(arvolista)) * AKKU_VAKIO
+    else:
+        jannite = 0
     return jannite
 
 def lue_lampo_kosteus():
@@ -149,6 +151,7 @@ def laheta_arvot_mqtt(lampo_in, kosteus_in, akku_in):
     if akku_in <= 2.4:
         try:
             client.publish(AIHE_VIRHEET, "Aika vaihtaa %s paristo! Jännite %sV" % (CLIENT_ID, str(akku_in)))
+            print("Aika vaihtaa %s paristo! Jännite %sV" % (CLIENT_ID, str(akku_in)))
         except OSError:
             return False
     try:
@@ -186,12 +189,12 @@ while True:
     toisiopiiri(0)
     # DHT aktivaatiolle hieman aikaa
     time.sleep(1)
+    akkutila = lue_akkujannite()
     try:
         lampo, kosteus = lue_lampo_kosteus()
     except TypeError:
         pass
-    akkutila = lue_akkujannite()
-    if (lampo is not None) and (kosteus is not None) and akkutila > 0:
+    if (lampo is not None) and (kosteus is not None):
         laheta_arvot_mqtt(lampo, kosteus, akkutila)
     try:
         client.disconnect()
@@ -200,5 +203,6 @@ while True:
     except KeyboardInterrupt:
         raise
     toisiopiiri(1)
+
     print("Nukkumaan %s millisekunniksi!" % NUKKUMIS_AIKA)
     machine.deepsleep(NUKKUMIS_AIKA)
