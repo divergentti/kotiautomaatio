@@ -184,6 +184,8 @@ while True:
     kosteus = None
     #  Aktivoidaan toisiopiiri liittämällä maa piiriin
     toisiopiiri(0)
+    # DHT aktivaatiolle hieman aikaa
+    time.sleep(1)
     try:
         lampo, kosteus = lue_lampo_kosteus()
     except TypeError:
