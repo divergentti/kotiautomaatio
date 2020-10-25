@@ -101,8 +101,8 @@ toisiopiiri = Pin(TOISIOPIIRI_AKTIVOINTI_PINNI, mode=Pin.OPEN_DRAIN, pull=-1)
 
 def lue_akkujannite():
     arvolista = []
-    #  Luetaan 5 arvoa
-    while len(arvolista) < 5:
+    #  Luetaan 3 arvoa
+    while len(arvolista) < 3:
         try:
             arvolista.append(akkujannite.read())
         except OSError:
@@ -115,28 +115,28 @@ def lue_akkujannite():
     return jannite
 
 def lue_lampo_kosteus():
-    """ Luetaan 3 arvoa 2s välein ja lasketaan keskiarvo, joka lähtetään mqtt:llä """
+    """ Luetaan 2 arvoa 2s välein ja lasketaan keskiarvo, joka lähtetään mqtt:llä """
     lampo_lista = []  # keskiarvon laskentaa varten
     rh_lista = []  # keskiarvon laskentaa varten
     lukukertoja = 0
     lampo_keskiarvo = 0
     rh_keskiarvo = 0
 
-    while lukukertoja < 3:
+    while lukukertoja < 2:
         try:
             anturi.measure()
         except OSError:
             print("Sensoria ei voida lukea!")
             return False
         lampo = anturi.temperature() * DHT22_LAMPO_KORJAUSKERROIN
-        print('Lampo: %3.1f C' % lampo)
+        # print('Lampo: %3.1f C' % lampo)
         if (lampo > -40) and (lampo < 100):
             lampo_lista.append(lampo)
         kosteus = anturi.humidity() * DHT22_KOSTEUS_KORJAUSKERROIN
-        print('Kosteus: %3.1f %%' % kosteus)
+        # print('Kosteus: %3.1f %%' % kosteus)
         if (kosteus > 0) and (kosteus <= 100):
             rh_lista.append(kosteus)
-        if len(lampo_lista) == 3:
+        if len(lampo_lista) == 2:
             lampo_keskiarvo = sum(lampo_lista) / len(lampo_lista)
             rh_keskiarvo = sum(rh_lista) / len(rh_lista)
         time.sleep(2)
@@ -147,11 +147,11 @@ def lue_lampo_kosteus():
 def laheta_arvot_mqtt(lampo_in, kosteus_in, akku_in):
     lampof = '{:.1f}'.format(lampo_in)
     kosteusf = '{:.1f}'.format(kosteus_in)
-    #  Muodostetaan hälytys jos jännite on 2.4 tai alle.
-    if akku_in <= 2.4:
+    #  Muodostetaan hälytys jos jännite on 2.5 tai alle.
+    if akku_in <= 2.5:
         try:
             client.publish(AIHE_VIRHEET, "Aika vaihtaa %s paristo! Jännite %sV" % (CLIENT_ID, str(akku_in)))
-            print("Aika vaihtaa %s paristo! Jännite %sV" % (CLIENT_ID, str(akku_in)))
+            # print("Aika vaihtaa %s paristo! Jännite %sV" % (CLIENT_ID, str(akku_in)))
         except OSError:
             return False
     try:
@@ -166,12 +166,12 @@ def laheta_arvot_mqtt(lampo_in, kosteus_in, akku_in):
         client.publish(AIHE_JANNITE, str(akku_in))
     except OSError:
         return False
-    print("MQTT:lle %sC, %s, %sV" % (lampof, kosteusf, akku_in))
+    # print("MQTT:lle %sC, %s, %sV" % (lampof, kosteusf, akku_in))
     return True
 
 
 def restart_and_reconnect():
-    print('Ongelmia. Boottaillaan.')
+    # print('Ongelmia. Boottaillaan.')
     machine.reset()
     # resetoidaan
 
@@ -179,7 +179,7 @@ def restart_and_reconnect():
 try:
     client.connect()
 except OSError:
-    print("Ei voida yhdistaa mqtt! ")
+    # print("Ei voida yhdistaa mqtt! ")
     restart_and_reconnect()
 
 while True:
@@ -187,13 +187,15 @@ while True:
     kosteus = None
     #  Aktivoidaan toisiopiiri liittämällä maa piiriin
     toisiopiiri(0)
-    # DHT aktivaatiolle hieman aikaa
+    #  DHT aktivaatiolle hieman aikaa
     time.sleep(1)
     akkutila = lue_akkujannite()
     try:
         lampo, kosteus = lue_lampo_kosteus()
     except TypeError:
         pass
+    #  Inaktivoidaan toisiopiiri
+    toisiopiiri(1)
     if (lampo is not None) and (kosteus is not None):
         laheta_arvot_mqtt(lampo, kosteus, akkutila)
     try:
@@ -202,7 +204,5 @@ while True:
         pass
     except KeyboardInterrupt:
         raise
-    toisiopiiri(1)
-
-    print("Nukkumaan %s millisekunniksi!" % NUKKUMIS_AIKA)
+    # print("Nukkumaan %s millisekunniksi!" % NUKKUMIS_AIKA)
     machine.deepsleep(NUKKUMIS_AIKA)
