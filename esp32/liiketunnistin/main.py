@@ -175,7 +175,7 @@ class LiikeTunnistin:
             restart_and_reconnect()
 
 
-def main():
+def paalooppi():
     pir = LiikeTunnistin(PIR_PINNI, 5)  # viive sekunneissa
 
     try:
@@ -203,4 +203,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    paalooppi()
