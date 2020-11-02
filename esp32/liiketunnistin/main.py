@@ -31,6 +31,7 @@
     24.9.2020: Lisätty virheiden kirjaus tiedostoon ja lähetys mqtt-kanavaan. Poistettu ledivilkutus.
                Virheiden kirjauksessa erottimena toimii ";" eli puolipilkulla erotetut arvot.
     11.10.2020: Lisätty mqtt-pollaus siten, että jos mqtt-viestejä ei kuulu puoleen tuntiin, laite bootataan.
+    2.11.2020:  Tehty objektimallinen scripti ja viivemahdolisuus viesteille. Oletus 5s.
 """
 import time
 import utime
@@ -45,12 +46,8 @@ from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
 # tuodaan bootis wifi-ap:n objekti
 from boot import wificlient_if
 
-gc.enable()  # aktivoidaan automaattinen roskankeruu
 
 client = MQTTClient(CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, MQTT_SALASANA)
-
-# Liikesensorin pinni
-pir = Pin(PIR_PINNI, Pin.IN)
 
 # MQTT-uptimelaskuri
 mqtt_viimeksi_nahty = utime.ticks_ms()
@@ -95,27 +92,8 @@ def mqtt_palvelin_yhdista():
         restart_and_reconnect()
 
 
-def laheta_pir(status):
-    aika = ratkaise_aika()
-    if wificlient_if.isconnected():
-        try:
-            client.publish(AIHE_LIIKETUNNISTIN, str(status), qos=1, retain=True)  # 1 = liiketta, 0 = liike loppunut
-            gc.collect()  # puhdistetaan roskat
-            return True
-        except OSError as e:
-            print("% s:  Ei voida yhdistaa mqtt-palvelimeen! %s " % (aika, e))
-
-            restart_and_reconnect()
-    else:
-        print("%s: Yhteys on poikki! Signaalitaso %s. Bootataan. " % (aika, wificlient_if.status('rssi')))
-        raportoi_virhe("Yhteys poikki rssi: %s" % wificlient_if.status('rssi'))
-        restart_and_reconnect()
-
-
 def restart_and_reconnect():
     aika = ratkaise_aika()
-    wificlient_if.disconnect()
-    wificlient_if.active(False)
     print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
     time.sleep(1)
     machine.reset()
@@ -124,7 +102,7 @@ def restart_and_reconnect():
 
 def tarkista_uptime(aihe, viesti):
     global mqtt_viimeksi_nahty
-    print("Aihe %s ja viesti %s vastaanotettu, nollataan laskuri." % (aihe, viesti))
+    print("Aihe %s vastaanotettu, nollataan laskuri." % aihe)
     mqtt_viimeksi_nahty = utime.ticks_ms()
 
 
@@ -140,7 +118,7 @@ def tarkista_virhetiedosto():
         try:
             client.publish(AIHE_VIRHEET, str(rivit), retain=False)
             rivit = tiedosto.readline()
-        except OSError as e:
+        except OSError:
             #  Ei onnistu, joten bootataan
             restart_and_reconnect()
     #  Tiedosto luettu ja mqtt:lla ilmoitettu, suljetaan ja poistetaan se
@@ -148,58 +126,81 @@ def tarkista_virhetiedosto():
     os.remove('virheet.txt')
 
 
-def seuraa_liiketta():
-    time.sleep(3)
-    mqtt_palvelin_yhdista()
-    tarkista_virhetiedosto()
-    # statuskyselya varten
-    client.set_callback(tarkista_uptime)
-    # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuri
-    client.subscribe("$SYS/broker/bytes/#")
-    on_aika = utime.time()
-    ilmoitettu_on = False
-    ilmoitettu_off = False
+class LiikeTunnistin:
+    global mqtt_viimeksi_nahty, client
+
+    def __init__(self, pinni, viive):
+        self.pinni = Pin(pinni, Pin.IN)
+        self.viive = viive
+        self.liiketta = False  # Onko liikettä havaittu?
+        self.on_aika = utime.time()
+        self.off_aika = utime.time()
+        self.ilmoitettu_aika = utime.time()
+        self.ilmoitettu = False
+        self.tila = 0
+        self.edellinen_tila = 0
+
+    def laheta_status(self):
+        """ Tarkistetaan tuleeko ilmoittaa """
+        if (utime.time()-self.ilmoitettu_aika) >= self.viive:
+            if self.ilmoitettu is False and self.tila != self.edellinen_tila:
+                try:
+                    client.publish(AIHE_LIIKETUNNISTIN, str(self.tila), qos=1, retain=True)
+                    self.ilmoitettu = True
+                    self.edellinen_tila = self.tila
+                    self.ilmoitettu_aika = utime.time()
+                    print("%s: Ilmoitettu tila: %s" % (utime.time(), self.tila))
+                except OSError as e:
+                    restart_and_reconnect()
+        else:
+            self.ilmoitettu = False
+
+    def liike_looppi(self):
+        self.tila = self.pinni.value()
+        if self.tila == 1:
+            self.on_aika = utime.time()
+            self.liiketta = True
+        if self.tila == 0:
+            self.off_aika = utime.time()
+            self.liiketta = False
+
+    def tarkista_viesti(self):
+        client.check_msg()
+
+    def uptime_looppi(self):
+        if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
+            # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
+            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin."
+                           % (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 100))
+            restart_and_reconnect()
+
+
+def main():
+    pir = LiikeTunnistin(PIR_PINNI, 5)  # viive sekunneissa
+
+    try:
+        mqtt_palvelin_yhdista()
+        tarkista_virhetiedosto()
+        # statuskyselya varten
+        client.set_callback(tarkista_uptime)
+        # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuri
+        client.subscribe("$SYS/broker/bytes/#")
+    except AttributeError:
+        pass
 
     while True:
         try:
-            pir_tila = pir.value()
-            if (pir_tila == 0) and (ilmoitettu_off is False):
-                aika = ratkaise_aika()
-                ''' Nollataan ilmoitus'''
-                off_aika = utime.time()
-                print("%s UTC : ilmoitettu liikkeen lopusta. Liike kesti %s sekuntia. Uptime %s" %
-                      (aika, (off_aika - on_aika), (utime.ticks_ms())))
-                laheta_pir(0)
-                ilmoitettu_off = True
-                ilmoitettu_on = False
-            elif (pir_tila == 1) and (ilmoitettu_on is False):
-                ''' Liikettä havaittu !'''
-                aika = ratkaise_aika()
-                on_aika = utime.time()
-                print("%s UTC: ilmoitetaan liikkeesta!" % aika)
-                laheta_pir(1)
-                ilmoitettu_on = True
-                ilmoitettu_off = False
-
-        except AttributeError:
-            pass
-
+            pir.liike_looppi()
+            if pir.liiketta is True:
+                pir.laheta_status()
+            elif pir.liiketta is False:
+                pir.laheta_status()
+            pir.tarkista_viesti()
+            pir.uptime_looppi()
+            time.sleep(0.01)
         except KeyboardInterrupt:
             raise
-
-        try:
-            client.check_msg()
-        except KeyboardInterrupt:
-            raise
-
-        if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
-            # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
-            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s msekuntiin." % (utime.ticks_diff(utime.ticks_ms() ,mqtt_viimeksi_nahty)))
-            restart_and_reconnect()
-
-        # lasketaan prosessorin kuormaa
-        time.sleep(0.1)
 
 
 if __name__ == "__main__":
-    seuraa_liiketta()
+    main()
