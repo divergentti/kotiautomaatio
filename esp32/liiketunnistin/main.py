@@ -49,9 +49,6 @@ from boot import wificlient_if
 
 client = MQTTClient(CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, MQTT_SALASANA)
 
-# MQTT-uptimelaskuri
-mqtt_viimeksi_nahty = utime.ticks_ms()
-
 
 def raportoi_virhe(virhe):
     # IN: str virhe = virheen tekstiosa
@@ -100,12 +97,6 @@ def restart_and_reconnect():
     # resetoidaan
 
 
-def tarkista_uptime(aihe, viesti):
-    global mqtt_viimeksi_nahty
-    print("Aihe %s vastaanotettu, nollataan laskuri." % aihe)
-    mqtt_viimeksi_nahty = utime.ticks_ms()
-
-
 def tarkista_virhetiedosto():
     try:
         tiedosto = open('virheet.txt', "r")
@@ -127,7 +118,7 @@ def tarkista_virhetiedosto():
 
 
 class LiikeTunnistin:
-    global mqtt_viimeksi_nahty, client
+    global client
 
     def __init__(self, pinni, viive):
         self.pinni = Pin(pinni, Pin.IN)
@@ -150,7 +141,7 @@ class LiikeTunnistin:
                     self.edellinen_tila = self.tila
                     self.ilmoitettu_aika = utime.time()
                     print("%s: Ilmoitettu tila: %s" % (utime.time(), self.tila))
-                except OSError as e:
+                except OSError:
                     restart_and_reconnect()
         else:
             self.ilmoitettu = False
@@ -164,16 +155,6 @@ class LiikeTunnistin:
             self.off_aika = utime.time()
             self.liiketta = False
 
-    def tarkista_viesti(self):
-        client.check_msg()
-
-    def uptime_looppi(self):
-        if (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 1000):
-            # MQTT-palvelin ei ole raportoinut yli puoleen tuntiin
-            raportoi_virhe("MQTT-palvelinta ei ole nahty: %s sekuntiin."
-                           % (utime.ticks_diff(utime.ticks_ms(), mqtt_viimeksi_nahty)) > (60 * 30 * 100))
-            restart_and_reconnect()
-
 
 def paalooppi():
     pir = LiikeTunnistin(PIR_PINNI, 5)  # viive sekunneissa
@@ -182,9 +163,6 @@ def paalooppi():
         mqtt_palvelin_yhdista()
         tarkista_virhetiedosto()
         # statuskyselya varten
-        client.set_callback(tarkista_uptime)
-        # Tilataan brokerin lahettamat sys-viestit ja nollataan aikalaskuri
-        client.subscribe("$SYS/broker/bytes/#")
     except AttributeError:
         pass
 
@@ -195,9 +173,9 @@ def paalooppi():
                 pir.laheta_status()
             elif pir.liiketta is False:
                 pir.laheta_status()
-            pir.tarkista_viesti()
-            pir.uptime_looppi()
-            time.sleep(0.01)
+            time.sleep(0.1)
+        except OSError:
+            restart_and_reconnect()
         except KeyboardInterrupt:
             raise
 
