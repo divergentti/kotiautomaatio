@@ -32,6 +32,7 @@
                Virheiden kirjauksessa erottimena toimii ";" eli puolipilkulla erotetut arvot.
     11.10.2020: Lisätty mqtt-pollaus siten, että jos mqtt-viestejä ei kuulu puoleen tuntiin, laite bootataan.
     2.11.2020:  Tehty objektimallinen scripti ja viivemahdolisuus viesteille. Oletus 5s.
+    4.11.2020: Poistettu mqtt-pollaus.
 """
 import time
 import utime
