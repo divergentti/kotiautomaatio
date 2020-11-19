@@ -16,8 +16,6 @@ I2C kytkentä esimerkki:
     SCL = 22
     SDA = 21
 
-Malliksi toteutuspohjaa asynkronisesta tavasta hoitaa näytön päivitys.
-
 """
 
 
@@ -50,12 +48,15 @@ class SPI_naytonohjain():
                                         self.res, self.cs)
         self.naytto.poweron()
         self.naytto.init_display()
+        self.kaanteinen = False
 
     async def pitka_teksti_nayttoon(self, teksti, aika):
         self.aika = aika
+        self.nayttotekstit.clear()
+        self.rivit.clear()
         """ Teksti (str) ja aika (int) miten pitkään tekstiä näytetään """
         self.nayttotekstit = [teksti[y-self.nayttoleveys:y] for y in range(self.nayttoleveys,
-                         len(teksti)+self.nayttoleveys, self.nayttoleveys)]
+                              len(teksti)+self.nayttoleveys, self.nayttoleveys)]
         for y in range(len(self.nayttotekstit)):
             self.rivit.append(self.nayttotekstit[y])
         if len(self.rivit) > self.nayttorivit:
@@ -65,7 +66,6 @@ class SPI_naytonohjain():
         if sivuja == 1:
             for z in range(0, len(self.rivit)):
                 self.naytto.text(self.rivit[z], 0, 1 + z * 10, 1)
-            await self.aktivoi_naytto()
 
 
     async def teksti_riville(self, teksti, rivi, aika):
@@ -75,7 +75,6 @@ class SPI_naytonohjain():
             self.naytto.text('Rivi liian pitkä!', 0, 1 + rivi * 10, 1)
         elif len(teksti) <= self.nayttoleveys:
             self.naytto.text(teksti, 0, 1 + rivi * 10, 1)
-        await self.aktivoi_naytto()
 
 
     async def aktivoi_naytto(self):
@@ -85,10 +84,38 @@ class SPI_naytonohjain():
         self.naytto.sleep(True)
         self.naytto.init_display()
 
-        """display.invert(True) = valkea tausta '
-        display.rotate(flag[, update=True])
-        display.contrast(level)
-        """
+    async def kontrasti(self, kontrasti=255):
+        if kontrasti > 1 or kontrasti < 255:
+            self.naytto.contrast(kontrasti)
+
+    async def kaanteinen_vari(self, kaanteinen=False):
+        self.kaanteinen = kaanteinen
+        self.naytto.invert(kaanteinen)
+
+    async def kaanna_180_astetta(self, kaanna=False):
+        self.naytto.rotate(kaanna)
+
+    async def piirra_kehys(self):
+        if self.kaanteinen is False:
+            self.naytto.framebuf.rect(1, 1, self.pikselit_leveys-1, self.pikselit_korkeus-1, 0xffff)
+        else:
+            self.naytto.framebuf.rect(1, 1, self.pikselit_leveys - 1, self.pikselit_korkeus - 1, 0x0000)
+
+    async def piirra_alleviivaus(self, rivi, leveys):
+        rivikorkeus = self.pikselit_korkeus / self.nayttorivit
+        alkux = 1
+        alkuy = 8 + (int(rivikorkeus * rivi))
+        merkkileveys = int(8 * leveys)
+        if self.kaanteinen is False:
+            self.naytto.framebuf.hline(alkux, alkuy, merkkileveys, 0xffff)
+        else:
+            self.naytto.framebuf.hline(alkux, alkuy, merkkileveys, 0x0000)
+
+
+    async def resetoi_naytto(self):
+        self.naytto.reset()
+
+
 
 async def neiti_aika():
     while True:
@@ -105,10 +132,14 @@ async def main():
         asyncio.create_task(naytin.teksti_riville("Riville 3", 3, 10))
         asyncio.create_task(naytin.pitka_teksti_nayttoon("Viela pidempi teksti nayttoon", 5)) """
         asyncio.create_task(neiti_aika())
-        await naytin.pitka_teksti_nayttoon("Pitka teksti nayttoon", 5)
-        await naytin.teksti_riville("Riville 3", 3, 10)
-        await naytin.pitka_teksti_nayttoon("Viela pidempi teksti nayttoon", 5)
-        await naytin.teksti_riville("Riville 4", 4, 10)
+        await naytin.pitka_teksti_nayttoon("Tervetuloa! Pitka teksti naytolle!", 2)
+        await naytin.aktivoi_naytto()
+        await naytin.teksti_riville("Rh %", 3, 2)
+        await naytin.aktivoi_naytto()
+        await naytin.piirra_kehys()
+        await naytin.teksti_riville("Temp C", 4, 2)
+        await naytin.piirra_alleviivaus(4, 6)
+        await naytin.aktivoi_naytto()
         await asyncio.sleep_ms(100)
 
 asyncio.run(main())
