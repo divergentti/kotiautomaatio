@@ -30,7 +30,7 @@ import ccs811
 import time
 import uasyncio as asyncio
 import utime
-
+import esp32
 
 class SPI_naytonohjain():
 
@@ -78,7 +78,7 @@ class SPI_naytonohjain():
         self.aika = aika
         """ Teksti (str), rivit (int) ja aika (int) miten pitkään tekstiä näytetään """
         if len(teksti) > self.nayttoleveys:
-            self.naytto.text('Rivi liian pitkä!', 0, 1 + rivi * 10, 1)
+            self.naytto.text('Rivi liian pitka', 0, 1 + rivi * 10, 1)
         elif len(teksti) <= self.nayttoleveys:
             self.naytto.text(teksti, 0, 1 + rivi * 10, 1)
 
@@ -152,6 +152,9 @@ async def neiti_aika():
 
 
 
+esp32.hall_sensor()
+
+
 async def main():
     naytin = SPI_naytonohjain()
     kaasusensori = KaasuSensori()
@@ -169,8 +172,18 @@ async def main():
         await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1,  5)
         if kaasusensori.eCO2 > 1:
             await naytin.teksti_riville("eCO2: %s" % kaasusensori.eCO2, 3, 5)
+            if kaasusensori.eCO2 > 1000:
+                await naytin.kaanteinen_vari(True)
+            else:
+                await naytin.kaanteinen_vari(False)
         if kaasusensori.tVOC > 1:
             await naytin.teksti_riville("tVOC: %s" % kaasusensori.tVOC, 4, 5)
+            if kaasusensori.tVOC > 500:
+                await naytin.kaanteinen_vari(True)
+            else:
+                await naytin.kaanteinen_vari(False)
+
+        await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(),5,5)
         await naytin.aktivoi_naytto()
         # await naytin.piirra_alleviivaus(3, 7)
         await asyncio.sleep_ms(100)
