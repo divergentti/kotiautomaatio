@@ -1,7 +1,8 @@
 """
-Käytetään sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
+OLED näytööe: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
+CCS811 sensorille:   https://github.com/Notthemarsian/CCS811/blob/master/CCS811.py
 
-SPI kytkentä esimerkki:
+Näytön SPI kytkentä esimerkki:
 
 SSD1306       NodeMCU-32S(ESP32)
       GND ----> GND
@@ -16,11 +17,16 @@ I2C kytkentä esimerkki:
     SCL = 22
     SDA = 21
 
+CCS811 muista kytkeä nWake -> GND!
+
+
 """
 
 
-from machine import SPI, Pin
+from machine import I2C, SPI, Pin
+
 import sh1106
+import ccs811
 import time
 import uasyncio as asyncio
 import utime
@@ -111,10 +117,22 @@ class SPI_naytonohjain():
         else:
             self.naytto.framebuf.hline(alkux, alkuy, merkkileveys, 0x0000)
 
-
     async def resetoi_naytto(self):
         self.naytto.reset()
 
+class KaasuSensori():
+
+    def __init__(self, i2cvayla=0, scl=22, sda=21, taajuus=400000, osoite=90):
+        self.i2c = I2C(i2cvayla, scl=Pin(scl), sda=Pin(sda), freq=taajuus)
+        self.laiteosoite = osoite
+        self.sensori = ccs811.CCS811(self.i2c)
+        self.eCO2 = 0
+        self.tVOC = 0
+
+    async def lue_arvot(self):
+        if self.sensori.data_ready():
+            self.eCO2 = self.sensori.eCO2
+            self.tVOC = self.sensori.tVOC
 
 
 async def neiti_aika():
@@ -126,19 +144,21 @@ async def neiti_aika():
 
 async def main():
     naytin = SPI_naytonohjain()
+    kaasusensori = KaasuSensori()
     # tyojono = asyncio.get_event_loop()
     while True:
         """ asyncio.create_task(naytin.pitka_teksti_nayttoon("Pitka teksti nayttoon", 5))
         asyncio.create_task(naytin.teksti_riville("Riville 3", 3, 10))
         asyncio.create_task(naytin.pitka_teksti_nayttoon("Viela pidempi teksti nayttoon", 5)) """
         asyncio.create_task(neiti_aika())
-        await naytin.pitka_teksti_nayttoon("Tervetuloa! Pitka teksti naytolle!", 2)
-        await naytin.aktivoi_naytto()
-        await naytin.teksti_riville("Rh %", 3, 2)
-        await naytin.aktivoi_naytto()
+        await naytin.pitka_teksti_nayttoon("Ilmanlaatumonitorointi v0.01", 2)
         await naytin.piirra_kehys()
-        await naytin.teksti_riville("Temp C", 4, 2)
-        await naytin.piirra_alleviivaus(4, 6)
+        await kaasusensori.lue_arvot()
+        await naytin.aktivoi_naytto()
+        await naytin.teksti_riville("eCO2: %s" % kaasusensori.eCO2, 2, 5)
+        await naytin.aktivoi_naytto()
+        await naytin.teksti_riville("tVOC: %s" % kaasusensori.tVOC, 3, 5)
+        await naytin.piirra_alleviivaus(3, 7)
         await naytin.aktivoi_naytto()
         await asyncio.sleep_ms(100)
 
