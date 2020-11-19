@@ -135,6 +135,16 @@ class KaasuSensori():
             self.tVOC = self.sensori.tVOC
 
 
+def ratkaise_aika():
+    (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = utime.localtime()
+    paivat = {0: "Ma", 1: "Ti", 2: "Ke", 3: "To", 4: "Pe", 5: "La", 6: "Su"}
+    kuukaudet = {1: "Tam", 2: "Hel", 3: "Maa", 4: "Huh", 5: "Tou", 6: "Kes", 7: "Hei", 8: "Elo",
+              9: "Syy", 10: "Lok", 11: "Mar", 12: "Jou"}
+    #.format(paivat[viikonpva]), format(kuukaudet[kuukausi]),
+    paiva = "%s.%s.%s" % (kkpaiva, kuukausi, vuosi)
+    kello = "%s:%s:%s" % ("{:02d}".format(tunti), "{:02d}".format(minuutti), "{:02d}".format(sekunti))
+    return paiva, kello
+
 async def neiti_aika():
     while True:
         print("Uptime %s" % utime.time())
@@ -151,15 +161,18 @@ async def main():
         asyncio.create_task(naytin.teksti_riville("Riville 3", 3, 10))
         asyncio.create_task(naytin.pitka_teksti_nayttoon("Viela pidempi teksti nayttoon", 5)) """
         asyncio.create_task(neiti_aika())
-        await naytin.pitka_teksti_nayttoon("Ilmanlaatumonitorointi v0.01", 2)
-        await naytin.piirra_kehys()
-        await kaasusensori.lue_arvot()
+        #  Luetaan arvoja taustalla
+        asyncio.create_task(kaasusensori.lue_arvot())
+        # await naytin.pitka_teksti_nayttoon("Ilmanlaatumonitorointi v0.01", 5)
+        # await naytin.piirra_kehys()
+        await naytin.teksti_riville("PVM: %s" % ratkaise_aika()[0], 0, 5)
+        await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1,  5)
+        if kaasusensori.eCO2 > 1:
+            await naytin.teksti_riville("eCO2: %s" % kaasusensori.eCO2, 3, 5)
+        if kaasusensori.tVOC > 1:
+            await naytin.teksti_riville("tVOC: %s" % kaasusensori.tVOC, 4, 5)
         await naytin.aktivoi_naytto()
-        await naytin.teksti_riville("eCO2: %s" % kaasusensori.eCO2, 2, 5)
-        await naytin.aktivoi_naytto()
-        await naytin.teksti_riville("tVOC: %s" % kaasusensori.tVOC, 3, 5)
-        await naytin.piirra_alleviivaus(3, 7)
-        await naytin.aktivoi_naytto()
+        # await naytin.piirra_alleviivaus(3, 7)
         await asyncio.sleep_ms(100)
 
 asyncio.run(main())
