@@ -1,4 +1,4 @@
-""" 
+"""
 Scripti lukee sensoria ja näyttää kolme eri sivua tietoja sekä sensorista että ESP32:sta.
 
 OLED näytölle: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
@@ -32,7 +32,8 @@ import utime
 import esp32
 import gc
 
-class SPI_naytonohjain():
+
+class SPInaytonohjain:
 
     def __init__(self, res=17, dc=16, cs=5, sck=18, mosi=23, leveys=16, rivit=6, lpikselit=128, kpikselit=64):
         self.rivit = []
@@ -73,7 +74,6 @@ class SPI_naytonohjain():
             for z in range(0, len(self.rivit)):
                 self.naytto.text(self.rivit[z], 0, 1 + z * 10, 1)
 
-
     async def teksti_riville(self, teksti, rivi, aika):
         self.aika = aika
         """ Teksti (str), rivit (int) ja aika (int) miten pitkään tekstiä näytetään """
@@ -81,7 +81,6 @@ class SPI_naytonohjain():
             self.naytto.text('Rivi liian pitka', 0, 1 + rivi * 10, 1)
         elif len(teksti) <= self.nayttoleveys:
             self.naytto.text(teksti, 0, 1 + rivi * 10, 1)
-
 
     async def aktivoi_naytto(self):
         self.naytto.sleep(False)
@@ -120,7 +119,8 @@ class SPI_naytonohjain():
     async def resetoi_naytto(self):
         self.naytto.reset()
 
-class KaasuSensori():
+
+class KaasuSensori:
 
     def __init__(self, i2cvayla=0, scl=22, sda=21, taajuus=400000, osoite=90):
         self.i2c = I2C(i2cvayla, scl=Pin(scl), sda=Pin(sda), freq=taajuus)
@@ -156,7 +156,7 @@ async def kerro_tilannetta():
         # print(kaasusensori.tVOC_keskiarvo)
         await asyncio.sleep_ms(100)
 
-naytin = SPI_naytonohjain()
+naytin = SPInaytonohjain()
 kaasusensori = KaasuSensori()
 
 
@@ -202,13 +202,14 @@ async def sivu_1():
 
 async def sivu_2():
     await naytin.teksti_riville("KESKIARVOT", 0, 5)
-    await naytin.piirra_alleviivaus(0, 10 )
+    await naytin.piirra_alleviivaus(0, 10)
     await naytin.teksti_riville("eCO2 {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
-    await naytin.teksti_riville("/%s luvusta." % kaasusensori.eCO2_arvoja , 3, 5)
+    await naytin.teksti_riville("/%s luvusta." % kaasusensori.eCO2_arvoja, 3, 5)
     await naytin.teksti_riville("tVOC {:0.1f} ppm".format(kaasusensori.tVOC_keskiarvo), 4, 5)
     await naytin.teksti_riville("/%s luvusta." % kaasusensori.tVOC_arvoja, 5, 5)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
+
 
 async def sivu_3():
     await naytin.teksti_riville("STATUS", 0, 5)
@@ -231,7 +232,6 @@ async def main():
         await sivu_2()
         await sivu_3()
         gc.collect()
-
 
 
 asyncio.run(main())
