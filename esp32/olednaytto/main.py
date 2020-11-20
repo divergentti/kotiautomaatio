@@ -1,5 +1,7 @@
-"""
-OLED näytööe: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
+""" 
+Scripti lukee sensoria ja näyttää kolme eri sivua tietoja sekä sensorista että ESP32:sta.
+
+OLED näytölle: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
 CCS811 sensorille:   https://github.com/Notthemarsian/CCS811/blob/master/CCS811.py
 
 Näytön SPI kytkentä esimerkki:
@@ -19,18 +21,16 @@ I2C kytkentä esimerkki:
 
 CCS811 muista kytkeä nWake -> GND!
 
-
 """
 
-
 from machine import I2C, SPI, Pin
-
 import sh1106
 import ccs811
 import time
 import uasyncio as asyncio
 import utime
 import esp32
+import gc
 
 class SPI_naytonohjain():
 
@@ -128,64 +128,110 @@ class KaasuSensori():
         self.sensori = ccs811.CCS811(self.i2c)
         self.eCO2 = 0
         self.tVOC = 0
+        self.eCO2_keskiarvo = 0
+        self.eCO2_arvoja = 0
+        self.tVOC_keskiarvo = 0
+        self.tVOC_arvoja = 0
+        self.luettu_aika = utime.time()
 
     async def lue_arvot(self):
-        if self.sensori.data_ready():
-            self.eCO2 = self.sensori.eCO2
-            self.tVOC = self.sensori.tVOC
+        while True:
+            if self.sensori.data_ready():
+                self.eCO2 = self.sensori.eCO2
+                self.tVOC = self.sensori.tVOC
+                self.luettu_aika = utime.time()
+            await asyncio.sleep_ms(1000)
 
 
 def ratkaise_aika():
     (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = utime.localtime()
-    paivat = {0: "Ma", 1: "Ti", 2: "Ke", 3: "To", 4: "Pe", 5: "La", 6: "Su"}
-    kuukaudet = {1: "Tam", 2: "Hel", 3: "Maa", 4: "Huh", 5: "Tou", 6: "Kes", 7: "Hei", 8: "Elo",
-              9: "Syy", 10: "Lok", 11: "Mar", 12: "Jou"}
-    #.format(paivat[viikonpva]), format(kuukaudet[kuukausi]),
     paiva = "%s.%s.%s" % (kkpaiva, kuukausi, vuosi)
     kello = "%s:%s:%s" % ("{:02d}".format(tunti), "{:02d}".format(minuutti), "{:02d}".format(sekunti))
     return paiva, kello
 
-async def neiti_aika():
+
+async def kerro_tilannetta():
     while True:
-        print("Uptime %s" % utime.time())
+        # print(kaasusensori.eCO2_keskiarvo)
+        # print(kaasusensori.tVOC_keskiarvo)
         await asyncio.sleep_ms(100)
 
+naytin = SPI_naytonohjain()
+kaasusensori = KaasuSensori()
 
 
-esp32.hall_sensor()
+async def laske_keskiarvot():
+    eco2_keskiarvot = []
+    tvoc_keskiarvot = []
+
+    while True:
+        if kaasusensori.eCO2 > 0:
+            eco2_keskiarvot.append(kaasusensori.eCO2)
+            kaasusensori.eCO2_keskiarvo = (sum(eco2_keskiarvot) / len(eco2_keskiarvot))
+            kaasusensori.eCO2_arvoja = len(eco2_keskiarvot)
+            if len(eco2_keskiarvot) > 60:
+                eco2_keskiarvot.clear()
+        if kaasusensori.tVOC > 0:
+            tvoc_keskiarvot.append(kaasusensori.tVOC)
+            kaasusensori.tVOC_keskiarvo = (sum(tvoc_keskiarvot) / len(tvoc_keskiarvot))
+            kaasusensori.tVOC_arvoja = len(tvoc_keskiarvot)
+            if len(tvoc_keskiarvot) > 60:
+                tvoc_keskiarvot.clear()
+        await asyncio.sleep(1)
+
+
+async def sivu_1():
+    await naytin.teksti_riville("PVM: %s" % ratkaise_aika()[0], 0, 5)
+    await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1, 5)
+    await naytin.teksti_riville("eCO2: %s ppm" % kaasusensori.eCO2, 3, 5)
+    if kaasusensori.eCO2 > 1000:
+        await naytin.kaanteinen_vari(True)
+    else:
+        await naytin.kaanteinen_vari(False)
+    await naytin.teksti_riville("tVOC: %s ppm" % kaasusensori.tVOC, 4, 5)
+    if kaasusensori.tVOC > 500:
+        await naytin.kaanteinen_vari(True)
+    else:
+        await naytin.kaanteinen_vari(False)
+
+    await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
+    await naytin.aktivoi_naytto()
+    # await naytin.piirra_alleviivaus(3, 7)
+    await asyncio.sleep_ms(100)
+
+
+async def sivu_2():
+    await naytin.teksti_riville("KESKIARVOT", 0, 5)
+    await naytin.piirra_alleviivaus(0, 10 )
+    await naytin.teksti_riville("eCO2 {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
+    await naytin.teksti_riville("/%s luvusta." % kaasusensori.eCO2_arvoja , 3, 5)
+    await naytin.teksti_riville("tVOC {:0.1f} ppm".format(kaasusensori.tVOC_keskiarvo), 4, 5)
+    await naytin.teksti_riville("/%s luvusta." % kaasusensori.tVOC_arvoja, 5, 5)
+    await naytin.aktivoi_naytto()
+    await asyncio.sleep_ms(100)
+
+async def sivu_3():
+    await naytin.teksti_riville("STATUS", 0, 5)
+    await naytin.piirra_alleviivaus(0, 6)
+    await naytin.teksti_riville("Up s.: %s" % utime.time(), 2, 5)
+    await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 3, 5)
+    await naytin.teksti_riville("CPU ydin {:0.1f} C".format(((esp32.raw_temperature() - 32)*5)/9), 4, 5)
+    await naytin.aktivoi_naytto()
+    await asyncio.sleep_ms(100)
 
 
 async def main():
-    naytin = SPI_naytonohjain()
-    kaasusensori = KaasuSensori()
     # tyojono = asyncio.get_event_loop()
+    #  Luetaan arvoja taustalla
+    asyncio.create_task(kerro_tilannetta())
+    asyncio.create_task(kaasusensori.lue_arvot())
+    asyncio.create_task(laske_keskiarvot())
     while True:
-        """ asyncio.create_task(naytin.pitka_teksti_nayttoon("Pitka teksti nayttoon", 5))
-        asyncio.create_task(naytin.teksti_riville("Riville 3", 3, 10))
-        asyncio.create_task(naytin.pitka_teksti_nayttoon("Viela pidempi teksti nayttoon", 5)) """
-        asyncio.create_task(neiti_aika())
-        #  Luetaan arvoja taustalla
-        asyncio.create_task(kaasusensori.lue_arvot())
-        # await naytin.pitka_teksti_nayttoon("Ilmanlaatumonitorointi v0.01", 5)
-        # await naytin.piirra_kehys()
-        await naytin.teksti_riville("PVM: %s" % ratkaise_aika()[0], 0, 5)
-        await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1,  5)
-        if kaasusensori.eCO2 > 1:
-            await naytin.teksti_riville("eCO2: %s" % kaasusensori.eCO2, 3, 5)
-            if kaasusensori.eCO2 > 1000:
-                await naytin.kaanteinen_vari(True)
-            else:
-                await naytin.kaanteinen_vari(False)
-        if kaasusensori.tVOC > 1:
-            await naytin.teksti_riville("tVOC: %s" % kaasusensori.tVOC, 4, 5)
-            if kaasusensori.tVOC > 500:
-                await naytin.kaanteinen_vari(True)
-            else:
-                await naytin.kaanteinen_vari(False)
+        await sivu_1()
+        await sivu_2()
+        await sivu_3()
+        gc.collect()
 
-        await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(),5,5)
-        await naytin.aktivoi_naytto()
-        # await naytin.piirra_alleviivaus(3, 7)
-        await asyncio.sleep_ms(100)
+
 
 asyncio.run(main())
