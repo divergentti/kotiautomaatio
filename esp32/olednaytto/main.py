@@ -1,10 +1,12 @@
 """
-Scripti lukee sensoria ja näyttää kolme eri sivua tietoja sekä sensorista että ESP32:sta.
+Scripti lukee sensoria ja näyttää kolme eri sivua tietoja sekä sensorista että ESP32:sta ja lähettää arvot
+mqtt-brokerille.
 
-OLED näytölle: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
-CCS811 sensorille:   https://github.com/Notthemarsian/CCS811/blob/master/CCS811.py
+Ulkoiset kirjastot:
 
-Näytön SPI kytkentä esimerkki:
+SPI OLED näytölle: sh1160-kirjastoa, jonka voit ladata täältä https://github.com/robert-hh/SH1106
+
+SPI kytkentä oletukset:
 
 SSD1306       NodeMCU-32S(ESP32)
       GND ----> GND
@@ -15,11 +17,18 @@ SSD1306       NodeMCU-32S(ESP32)
        DC ----> GPIO 16 Data/Command select
        CS ----> GPIO  5 Chip Select
 
-I2C kytkentä esimerkki:
+
+CCS811 sensorille:   https://github.com/Notthemarsian/CCS811/blob/master/CCS811.py
+
+I2C kytkentä oletukset:
     SCL = 22
     SDA = 21
+    CCS811 muista kytkeä nWake -> GND!
 
-CCS811 muista kytkeä nWake -> GND!
+Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mqtt_as/README.md
+
+
+21.11.2020 Jari Hiltunen
 
 """
 
@@ -30,7 +39,41 @@ import time
 import uasyncio as asyncio
 import utime
 import esp32
+from mqtt_as import MQTTClient
+import network
 import gc
+from mqtt_as import config
+import machine
+
+
+# tuodaan parametrit tiedostosta parametrit.py
+from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
+    MQTT_SALASANA, SSID1, SALASANA1, SSID2, SALASANA2, AIHE_CO2, AIHE_TVOC
+
+kaytettava_salasana = None
+
+if network.WLAN(network.STA_IF).config('essid') == SSID1:
+    kaytettava_salasana = SALASANA1
+elif network.WLAN(network.STA_IF).config('essid') == SSID2:
+    kaytettava_salasana = SALASANA2
+
+config['server'] = MQTT_SERVERI
+config['ssid'] = network.WLAN(network.STA_IF).config('essid')
+config['wifi_pw'] = kaytettava_salasana
+config['user'] = MQTT_KAYTTAJA
+config['password'] = MQTT_SALASANA
+config['port'] = MQTT_PORTTI
+config['client_id'] = CLIENT_ID
+client = MQTTClient(config)
+edellinen_klo = utime.time()
+aloitusaika = utime.time()
+
+def restart_and_reconnect():
+    aika = ratkaise_aika()
+    print('%s: Ongelmia. Boottaillaan 1s kuluttua.' % aika)
+    time.sleep(1)
+    machine.reset()
+    # resetoidaan
 
 
 class SPInaytonohjain:
@@ -39,6 +82,7 @@ class SPInaytonohjain:
         self.rivit = []
         self.nayttotekstit = []
         self.aika = 5  # oletusnäyttöaika
+        self.rivi = 1
         """ Muodostetaan näytönohjaukseen tarvittavat objektit """
         # SPI-kytkennan pinnit
         self.res = Pin(res)  # reset
@@ -57,8 +101,9 @@ class SPInaytonohjain:
         self.naytto.init_display()
         self.kaanteinen = False
 
-    async def pitka_teksti_nayttoon(self, teksti, aika):
+    async def pitka_teksti_nayttoon(self, teksti, aika, rivi=1):
         self.aika = aika
+        self.rivi = rivi
         self.nayttotekstit.clear()
         self.rivit.clear()
         """ Teksti (str) ja aika (int) miten pitkään tekstiä näytetään """
@@ -72,7 +117,7 @@ class SPInaytonohjain:
             sivuja = 1
         if sivuja == 1:
             for z in range(0, len(self.rivit)):
-                self.naytto.text(self.rivit[z], 0, 1 + z * 10, 1)
+                self.naytto.text(self.rivit[z], 0, self.rivi + z * 10, 1)
 
     async def teksti_riville(self, teksti, rivi, aika):
         self.aika = aika
@@ -152,7 +197,7 @@ def ratkaise_aika():
 
 async def kerro_tilannetta():
     while True:
-        # print(kaasusensori.eCO2_keskiarvo)
+        print("RSSI %s" % network.WLAN(network.STA_IF).status('rssi'), end=",")
         # print(kaasusensori.tVOC_keskiarvo)
         await asyncio.sleep_ms(100)
 
@@ -204,9 +249,7 @@ async def sivu_2():
     await naytin.teksti_riville("KESKIARVOT", 0, 5)
     await naytin.piirra_alleviivaus(0, 10)
     await naytin.teksti_riville("eCO2 {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
-    await naytin.teksti_riville("/%s luvusta." % kaasusensori.eCO2_arvoja, 3, 5)
     await naytin.teksti_riville("tVOC {:0.1f} ppm".format(kaasusensori.tVOC_keskiarvo), 4, 5)
-    await naytin.teksti_riville("/%s luvusta." % kaasusensori.tVOC_arvoja, 5, 5)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
@@ -214,24 +257,48 @@ async def sivu_2():
 async def sivu_3():
     await naytin.teksti_riville("STATUS", 0, 5)
     await naytin.piirra_alleviivaus(0, 6)
-    await naytin.teksti_riville("Up s.: %s" % utime.time(), 2, 5)
-    await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 3, 5)
-    await naytin.teksti_riville("CPU ydin {:0.1f} C".format(((esp32.raw_temperature() - 32)*5)/9), 4, 5)
+    await naytin.teksti_riville("Up s.: %s" % (utime.time() - aloitusaika), 2, 5)
+    await naytin.teksti_riville("AP: %s" % network.WLAN(network.STA_IF).config('essid'), 3, 5)
+    await naytin.teksti_riville("rssi: %s" % network.WLAN(network.STA_IF).status('rssi'), 4, 5)
+    await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 5, 5)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
 
+async def mqtt_raportoi():
+    global edellinen_klo
+    n = 0
+    while True:
+        await asyncio.sleep(5)
+        print('publish', n)
+        await client.publish('result', '{}'.format(n), qos=1)
+        n += 1
+        if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and\
+                (utime.time() - edellinen_klo) > 60:
+            try:
+                await client.publish(AIHE_CO2, str(kaasusensori.eCO2_keskiarvo), retain=False, qos=0)
+                await client.publish(AIHE_TVOC, str(kaasusensori.tVOC_keskiarvo), retain=False, qos=0)
+                edellinen_klo = utime.time()
+            except OSError as e:
+                await naytin.kaanteinen_vari(True)
+                await naytin.teksti_riville("Virhe %s:" % e, 5, 5)
+                await naytin.aktivoi_naytto()
+
+
 async def main():
+    MQTTClient.DEBUG = False
+    await client.connect()
     # tyojono = asyncio.get_event_loop()
     #  Luetaan arvoja taustalla
     asyncio.create_task(kerro_tilannetta())
     asyncio.create_task(kaasusensori.lue_arvot())
     asyncio.create_task(laske_keskiarvot())
+    asyncio.create_task(mqtt_raportoi())
+
     while True:
         await sivu_1()
         await sivu_2()
         await sivu_3()
         gc.collect()
-
 
 asyncio.run(main())
