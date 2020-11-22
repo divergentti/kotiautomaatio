@@ -29,6 +29,7 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 
 
 21.11.2020 Jari Hiltunen
+22.11.2020 Lisätty DHT22 (AM2302) sensorin luku lämpötilalle ja kosteudelle
 
 """
 
@@ -44,11 +45,14 @@ import network
 import gc
 from mqtt_as import config
 import machine
+import dht
 
 
 # tuodaan parametrit tiedostosta parametrit.py
 from parametrit import CLIENT_ID, MQTT_SERVERI, MQTT_PORTTI, MQTT_KAYTTAJA, \
-    MQTT_SALASANA, SSID1, SALASANA1, SSID2, SALASANA2, AIHE_CO2, AIHE_TVOC
+    MQTT_SALASANA, SSID1, SALASANA1, SSID2, SALASANA2, AIHE_CO2, AIHE_TVOC, \
+    DHT22_KOSTEUS_KORJAUSKERROIN, DHT22_LAMPO_KORJAUSKERROIN, DHT22_KOSTEUS, DHT22_LAMPO
+
 
 kaytettava_salasana = None
 
@@ -65,8 +69,10 @@ config['password'] = MQTT_SALASANA
 config['port'] = MQTT_PORTTI
 config['client_id'] = CLIENT_ID
 client = MQTTClient(config)
-edellinen_klo = utime.time()
+edellinen_mqtt_klo = utime.time()
 aloitusaika = utime.time()
+anturilukuvirheita = 0
+
 
 def restart_and_reconnect():
     aika = ratkaise_aika()
@@ -188,6 +194,34 @@ class KaasuSensori:
             await asyncio.sleep_ms(1000)
 
 
+class LampojaKosteus:
+
+    def __init__(self, pinni=4, lukuvali=2):
+        self.pinni = pinni
+        self.lukuvali = lukuvali
+        self.lampo = None
+        self.kosteus = None
+        self.anturi = dht.DHT22(Pin(self.pinni))
+
+    async def lue_arvot(self):
+        global anturilukuvirheita
+        while True:
+            try:
+                self.anturi.measure()
+            except OSError as e:
+                print("Anturilukuvirhe %s", e)
+                self.lampo = None
+                self.kosteus = None
+                anturilukuvirheita += 1
+                if anturilukuvirheita > 50:
+                    restart_and_reconnect()
+            if (self.anturi.temperature() > -40) and (self.anturi.temperature() < 150):
+                self.lampo = '{:.1f}'.format(self.anturi.temperature() * DHT22_LAMPO_KORJAUSKERROIN)
+            if (self.anturi.humidity() > 0) and (self.anturi.humidity() < 101):
+                self.kosteus = '{:.1f}'.format(self.anturi.humidity() * DHT22_KOSTEUS_KORJAUSKERROIN)
+            await asyncio.sleep(self.lukuvali)
+
+
 def ratkaise_aika():
     (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = utime.localtime()
     paiva = "%s.%s.%s" % (kkpaiva, kuukausi, vuosi)
@@ -195,14 +229,19 @@ def ratkaise_aika():
     return paiva, kello
 
 
-async def kerro_tilannetta():
-    while True:
-        print("RSSI %s" % network.WLAN(network.STA_IF).status('rssi'), end=",")
-        # print(kaasusensori.tVOC_keskiarvo)
-        await asyncio.sleep_ms(100)
-
 naytin = SPInaytonohjain()
 kaasusensori = KaasuSensori()
+tempjarh = LampojaKosteus()
+
+
+async def kerro_tilannetta():
+    while True:
+        # print("RSSI %s" % network.WLAN(network.STA_IF).status('rssi'), end=",")
+        if tempjarh.lampo is not None:
+            print('Lampo: %s C' % tempjarh.lampo)
+        if tempjarh.kosteus is not None:
+            print('Kosteus: %s %%' % tempjarh.kosteus)
+        await asyncio.sleep(1)
 
 
 async def laske_keskiarvot():
@@ -228,18 +267,20 @@ async def laske_keskiarvot():
 async def sivu_1():
     await naytin.teksti_riville("PVM: %s" % ratkaise_aika()[0], 0, 5)
     await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1, 5)
-    await naytin.teksti_riville("eCO2: %s ppm" % kaasusensori.eCO2, 3, 5)
+    await naytin.teksti_riville("eCO2: %s ppm" % kaasusensori.eCO2, 2, 5)
     if kaasusensori.eCO2 > 1000:
         await naytin.kaanteinen_vari(True)
     else:
         await naytin.kaanteinen_vari(False)
-    await naytin.teksti_riville("tVOC: %s ppm" % kaasusensori.tVOC, 4, 5)
+    await naytin.teksti_riville("tVOC: %s ppm" % kaasusensori.tVOC, 3, 5)
     if kaasusensori.tVOC > 500:
         await naytin.kaanteinen_vari(True)
     else:
         await naytin.kaanteinen_vari(False)
-
-    await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
+    if tempjarh.lampo is not None:
+        await naytin.teksti_riville("Temp: %s C" % tempjarh.lampo, 4, 5)
+    if tempjarh.kosteus is not None:
+        await naytin.teksti_riville("Kosteus: %s %%" % tempjarh.kosteus, 5, 5)
     await naytin.aktivoi_naytto()
     # await naytin.piirra_alleviivaus(3, 7)
     await asyncio.sleep_ms(100)
@@ -257,31 +298,35 @@ async def sivu_2():
 async def sivu_3():
     await naytin.teksti_riville("STATUS", 0, 5)
     await naytin.piirra_alleviivaus(0, 6)
-    await naytin.teksti_riville("Up s.: %s" % (utime.time() - aloitusaika), 2, 5)
-    await naytin.teksti_riville("AP: %s" % network.WLAN(network.STA_IF).config('essid'), 3, 5)
-    await naytin.teksti_riville("rssi: %s" % network.WLAN(network.STA_IF).status('rssi'), 4, 5)
-    await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 5, 5)
+    await naytin.teksti_riville("Up s.: %s" % (utime.time() - aloitusaika), 1, 5)
+    await naytin.teksti_riville("AP: %s" % network.WLAN(network.STA_IF).config('essid'), 2, 5)
+    await naytin.teksti_riville("rssi: %s" % network.WLAN(network.STA_IF).status('rssi'), 3, 5)
+    await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 4, 5)
+    await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
 
 async def mqtt_raportoi():
-    global edellinen_klo
+    global edellinen_mqtt_klo
     n = 0
     while True:
         await asyncio.sleep(5)
-        print('publish', n)
+        print('mqtt-publish', n)
         await client.publish('result', '{}'.format(n), qos=1)
         n += 1
-        if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and\
-                (utime.time() - edellinen_klo) > 60:
+        if (kaasusensori.eCO2_keskiarvo > 0) and (kaasusensori.tVOC_keskiarvo > 0) and \
+                (tempjarh.lampo is not None) and (tempjarh.kosteus is not None) and \
+                (utime.time() - edellinen_mqtt_klo) > 60:
             try:
                 await client.publish(AIHE_CO2, str(kaasusensori.eCO2_keskiarvo), retain=False, qos=0)
                 await client.publish(AIHE_TVOC, str(kaasusensori.tVOC_keskiarvo), retain=False, qos=0)
-                edellinen_klo = utime.time()
+                await client.publish(DHT22_LAMPO, str(tempjarh.lampo), retain=False, qos=0)
+                await client.publish(DHT22_KOSTEUS, str(tempjarh.kosteus), retain=False, qos=0)
+                edellinen_mqtt_klo = utime.time()
             except OSError as e:
                 await naytin.kaanteinen_vari(True)
-                await naytin.teksti_riville("Virhe %s:" % e, 5, 5)
+                await naytin.pitka_teksti_nayttoon("Virhe %s:" % e, 5)
                 await naytin.aktivoi_naytto()
 
 
@@ -292,6 +337,7 @@ async def main():
     #  Luetaan arvoja taustalla
     asyncio.create_task(kerro_tilannetta())
     asyncio.create_task(kaasusensori.lue_arvot())
+    asyncio.create_task(tempjarh.lue_arvot())
     asyncio.create_task(laske_keskiarvot())
     asyncio.create_task(mqtt_raportoi())
 
