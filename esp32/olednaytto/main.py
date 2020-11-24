@@ -30,6 +30,7 @@ Asynkroninen MQTT: https://github.com/peterhinch/micropython-mqtt/blob/master/mq
 
 21.11.2020 Jari Hiltunen
 22.11.2020 Lisätty DHT22 (AM2302) sensorin luku lämpötilalle ja kosteudelle
+24.11.2020 Lisätty näytön kääntö, paikallisajan (dst) laskenta ja himmennys
 
 """
 
@@ -202,6 +203,8 @@ class LampojaKosteus:
         self.lampo = None
         self.kosteus = None
         self.anturi = dht.DHT22(Pin(self.pinni))
+        self.lampo_keskiarvo = 0
+        self.kosteus_keskiarvo = 0
 
     async def lue_arvot(self):
         global anturilukuvirheita
@@ -224,6 +227,16 @@ class LampojaKosteus:
 
 def ratkaise_aika():
     (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = utime.localtime()
+    """ Simppeli DST """
+    kesa_maalis = utime.mktime((vuosi, 3, (14 - (int(5 * vuosi / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    talvi_marras = utime.mktime((vuosi, 10, (7 - (int(5 * vuosi / 4 + 1)) % 7), 1, 0, 0, 0, 0, 0))
+    if utime.mktime(utime.localtime()) < kesa_maalis:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 10800)
+    elif utime.mktime(utime.localtime()) < talvi_marras:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
+    else:
+        dst = utime.localtime(utime.mktime(utime.localtime()) + 7200)
+    (vuosi, kuukausi, kkpaiva, tunti, minuutti, sekunti, viikonpva, vuosipaiva) = dst
     paiva = "%s.%s.%s" % (kkpaiva, kuukausi, vuosi)
     kello = "%s:%s:%s" % ("{:02d}".format(tunti), "{:02d}".format(minuutti), "{:02d}".format(sekunti))
     return paiva, kello
@@ -247,40 +260,54 @@ async def kerro_tilannetta():
 async def laske_keskiarvot():
     eco2_keskiarvot = []
     tvoc_keskiarvot = []
+    lampo_keskiarvot = []
+    kosteus_keskiarvot = []
 
     while True:
         if kaasusensori.eCO2 > 0:
             eco2_keskiarvot.append(kaasusensori.eCO2)
             kaasusensori.eCO2_keskiarvo = (sum(eco2_keskiarvot) / len(eco2_keskiarvot))
             kaasusensori.eCO2_arvoja = len(eco2_keskiarvot)
-            if len(eco2_keskiarvot) > 60:
+            if len(eco2_keskiarvot) > 100:
                 eco2_keskiarvot.clear()
         if kaasusensori.tVOC > 0:
             tvoc_keskiarvot.append(kaasusensori.tVOC)
             kaasusensori.tVOC_keskiarvo = (sum(tvoc_keskiarvot) / len(tvoc_keskiarvot))
             kaasusensori.tVOC_arvoja = len(tvoc_keskiarvot)
-            if len(tvoc_keskiarvot) > 60:
+            if len(tvoc_keskiarvot) > 100:
                 tvoc_keskiarvot.clear()
+        if tempjarh.lampo is not None:
+            lampo_keskiarvot.append(float(tempjarh.lampo))
+            tempjarh.lampo_keskiarvo = sum(lampo_keskiarvot) / len(lampo_keskiarvot)
+            if len(lampo_keskiarvot) > 100:
+                lampo_keskiarvot.clear()
+        if tempjarh.kosteus is not None:
+            kosteus_keskiarvot.append(float(tempjarh.kosteus))
+            tempjarh.kosteus_keskiarvo = sum(kosteus_keskiarvot) / len(kosteus_keskiarvot)
+            if len(kosteus_keskiarvot) > 100:
+                kosteus_keskiarvot.clear()
         await asyncio.sleep(1)
 
 
 async def sivu_1():
-    await naytin.teksti_riville("PVM: %s" % ratkaise_aika()[0], 0, 5)
-    await naytin.teksti_riville("KLO: %s" % ratkaise_aika()[1], 1, 5)
+    await naytin.teksti_riville("PVM:  %s" % ratkaise_aika()[0], 0, 5)
+    await naytin.teksti_riville("KLO:  %s" % ratkaise_aika()[1], 1, 5)
+    await naytin.piirra_alleviivaus(1, 20)
     await naytin.teksti_riville("eCO2: %s ppm" % kaasusensori.eCO2, 2, 5)
-    if kaasusensori.eCO2 > 1000:
+    if kaasusensori.eCO2 > 1200:
         await naytin.kaanteinen_vari(True)
     else:
         await naytin.kaanteinen_vari(False)
-    await naytin.teksti_riville("tVOC: %s ppm" % kaasusensori.tVOC, 3, 5)
-    if kaasusensori.tVOC > 500:
+    await naytin.teksti_riville("tVOC: %s ppb" % kaasusensori.tVOC, 3, 5)
+    if kaasusensori.tVOC > 100:
         await naytin.kaanteinen_vari(True)
     else:
         await naytin.kaanteinen_vari(False)
     if tempjarh.lampo is not None:
         await naytin.teksti_riville("Temp: %s C" % tempjarh.lampo, 4, 5)
     if tempjarh.kosteus is not None:
-        await naytin.teksti_riville("Kosteus: %s %%" % tempjarh.kosteus, 5, 5)
+        await naytin.teksti_riville("Rh:   %s %%" % tempjarh.kosteus, 5, 5)
+    await naytin.kaanna_180_astetta(True)
     await naytin.aktivoi_naytto()
     # await naytin.piirra_alleviivaus(3, 7)
     await asyncio.sleep_ms(100)
@@ -289,8 +316,21 @@ async def sivu_1():
 async def sivu_2():
     await naytin.teksti_riville("KESKIARVOT", 0, 5)
     await naytin.piirra_alleviivaus(0, 10)
-    await naytin.teksti_riville("eCO2 {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
-    await naytin.teksti_riville("tVOC {:0.1f} ppm".format(kaasusensori.tVOC_keskiarvo), 4, 5)
+    if kaasusensori.eCO2_keskiarvo > 1200:
+        await naytin.kaanteinen_vari(True)
+        await naytin.teksti_riville("eCO2: {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
+        await naytin.piirra_kehys()
+    else:
+        await naytin.teksti_riville("eCO2: {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
+    if kaasusensori.tVOC_keskiarvo > 100:
+        await naytin.kaanteinen_vari(True)
+        await naytin.teksti_riville("tVOC: {:0.1f} ppb".format(kaasusensori.tVOC_keskiarvo), 3, 5)
+        await naytin.piirra_kehys()
+    else:
+        await naytin.teksti_riville("tVOC: {:0.1f} ppb".format(kaasusensori.tVOC_keskiarvo), 3, 5)
+    await naytin.teksti_riville("Temp: {:0.1f} C".format(tempjarh.lampo_keskiarvo), 4, 5)
+    await naytin.teksti_riville("Rh  : {:0.1f} %".format(tempjarh.kosteus_keskiarvo), 5, 5)
+    await naytin.kaanna_180_astetta(True)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
@@ -303,6 +343,7 @@ async def sivu_3():
     await naytin.teksti_riville("rssi: %s" % network.WLAN(network.STA_IF).status('rssi'), 3, 5)
     await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 4, 5)
     await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
+    await naytin.kaanna_180_astetta(True)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
@@ -342,6 +383,10 @@ async def main():
     asyncio.create_task(mqtt_raportoi())
 
     while True:
+        if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
+            await naytin.kontrasti(30)
+        else:
+            await naytin.kontrasti(100)
         await sivu_1()
         await sivu_2()
         await sivu_3()
