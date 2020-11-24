@@ -13,3 +13,7 @@ AIHE_VIRHEET = 'virheet/etela/esp32'
 AIHE_CO2 = 'koti/sisa/mhpohjoinen/co2'
 AIHE_TVOC = 'koti/sisa/mhpohjoinen/tvoc'
 NTPPALVELIN = 'pool.ntp.org'
+DHT22_LAMPO = 'koti/sisa/mhita/lampo'
+DHT22_KOSTEUS = 'koti/sisa/mhita/kosteus'
+DHT22_LAMPO_KORJAUSKERROIN = 1.0000
+DHT22_KOSTEUS_KORJAUSKERROIN = 1.0000
