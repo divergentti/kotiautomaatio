@@ -318,18 +318,12 @@ async def sivu_2():
     await naytin.piirra_alleviivaus(0, 10)
     if kaasusensori.eCO2_keskiarvo > 1200:
         await naytin.kaanteinen_vari(True)
-        await naytin.teksti_riville("eCO2: {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
-        await naytin.piirra_kehys()
-    else:
-        await naytin.teksti_riville("eCO2: {:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
     if kaasusensori.tVOC_keskiarvo > 100:
         await naytin.kaanteinen_vari(True)
-        await naytin.teksti_riville("tVOC: {:0.1f} ppb".format(kaasusensori.tVOC_keskiarvo), 3, 5)
-        await naytin.piirra_kehys()
-    else:
-        await naytin.teksti_riville("tVOC: {:0.1f} ppb".format(kaasusensori.tVOC_keskiarvo), 3, 5)
-    await naytin.teksti_riville("Temp: {:0.1f} C".format(tempjarh.lampo_keskiarvo), 4, 5)
-    await naytin.teksti_riville("Rh  : {:0.1f} %".format(tempjarh.kosteus_keskiarvo), 5, 5)
+    await naytin.teksti_riville("eCO2:{:0.1f} ppm ".format(kaasusensori.eCO2_keskiarvo), 2, 5)
+    await naytin.teksti_riville("tVOC:{:0.1f} ppb".format(kaasusensori.tVOC_keskiarvo), 3, 5)
+    await naytin.teksti_riville("Temp:{:0.1f} C".format(tempjarh.lampo_keskiarvo), 4, 5)
+    await naytin.teksti_riville("Rh  :{:0.1f} %".format(tempjarh.kosteus_keskiarvo), 5, 5)
     await naytin.kaanna_180_astetta(True)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
@@ -376,7 +370,7 @@ async def main():
     await client.connect()
     # tyojono = asyncio.get_event_loop()
     #  Luetaan arvoja taustalla
-    asyncio.create_task(kerro_tilannetta())
+    # asyncio.create_task(kerro_tilannetta())
     asyncio.create_task(kaasusensori.lue_arvot())
     asyncio.create_task(tempjarh.lue_arvot())
     asyncio.create_task(laske_keskiarvot())
