@@ -308,6 +308,10 @@ async def sivu_1():
     if tempjarh.kosteus is not None:
         await naytin.teksti_riville("Rh:   %s %%" % tempjarh.kosteus, 5, 5)
     await naytin.kaanna_180_astetta(True)
+    if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
+        await naytin.kontrasti(5)
+    else:
+        await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
     # await naytin.piirra_alleviivaus(3, 7)
     await asyncio.sleep_ms(100)
@@ -325,6 +329,10 @@ async def sivu_2():
     await naytin.teksti_riville("Temp:{:0.1f} C".format(tempjarh.lampo_keskiarvo), 4, 5)
     await naytin.teksti_riville("Rh  :{:0.1f} %".format(tempjarh.kosteus_keskiarvo), 5, 5)
     await naytin.kaanna_180_astetta(True)
+    if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
+        await naytin.kontrasti(5)
+    else:
+        await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
@@ -338,6 +346,10 @@ async def sivu_3():
     await naytin.teksti_riville("Memfree: %s" % gc.mem_free(), 4, 5)
     await naytin.teksti_riville("Hall: %s" % esp32.hall_sensor(), 5, 5)
     await naytin.kaanna_180_astetta(True)
+    if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
+        await naytin.kontrasti(5)
+    else:
+        await naytin.kontrasti(100)
     await naytin.aktivoi_naytto()
     await asyncio.sleep_ms(100)
 
@@ -377,10 +389,6 @@ async def main():
     asyncio.create_task(mqtt_raportoi())
 
     while True:
-        if (ratkaise_aika()[1] > '20:00:00') and (ratkaise_aika()[1] < '08:00:00'):
-            await naytin.kontrasti(30)
-        else:
-            await naytin.kontrasti(100)
         await sivu_1()
         await sivu_2()
         await sivu_3()
